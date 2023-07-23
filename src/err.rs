@@ -1,3 +1,5 @@
-pub type DbResult<T> = Result<T, DbErr>;
+pub type LiteResult<T> = Result<T, LiteErr>;
 
-pub struct DbErr {}
+pub enum LiteErr {
+    None
+}
