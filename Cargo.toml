@@ -1,0 +1,13 @@
+[package]
+name = "lite_db"
+version = "0.1.0"
+edition = "2021"
+authors = ["Peace <peacess@163.com>"]
+description = "rust implement lite structure kv embedded database  --- lite db. lite fast kv db for mobile, client, wasm etc."
+repository = "https://github.com/peacess/lite_db"
+homepage = "https://github.com/peacess/lite_db"
+keywords = ["lite", "fast", "nosql", "kv", "embedded"]
+categories = ["database"]
+license = "Apache-2.0"
+
+[dependencies]
