@@ -1,28 +1,26 @@
-use crate::{LiteErr, LiteResult};
+use crate::DbResult;
 
-pub struct Key{
+pub struct Key {}
 
-}
-pub struct Value{
+pub struct Value {}
 
-}
-pub struct Config {}
-
-pub trait Db{
-    fn get(&self,k:&Key) -> Result<Option<Value>,LiteErr>;
-    fn add(&self, k: &Key, v: &Value) -> Result<(),LiteErr>;
-    fn remove(&self,k: &Key) -> Result<Option<Value>, LiteErr>;
+pub trait Getter {
+    fn get(&self, key: &Key) -> DbResult<Value>;
 }
 
-pub struct LiteDb{
-
+pub trait Adder {
+    fn add(&self, key: &Key, v: &Value) -> DbResult<()>;
 }
 
-impl LiteDb {
-    pub fn open<T>(cfg: &Config) -> LiteResult<Self>{
-        Err(LiteErr::None)
-    }
-    pub fn close(&self) -> LiteResult<()>{
-        Ok(())
-    }
+pub trait Remover {
+    fn remove(&self, key: &Key) -> DbResult<Value>;
 }
+
+pub trait Closer {
+    fn close(&self) -> DbResult<()>;
+}
+
+pub trait Editor: Getter + Adder + Remover {}
+
+pub trait Db: Editor + Closer {}
+

@@ -11,6 +11,8 @@ categories = ["database"]
 license = "Apache-2.0"
 
 [dependencies]
+log = "0.4.19"
+fs2 = "0.4.3"
 
 [lib]
 name = "lite_db"
