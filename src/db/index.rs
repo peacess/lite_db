@@ -1,6 +1,7 @@
 use bytes::Bytes;
 
-use crate::{DbResult, LogRecordPos};
+use crate::db::LogRecordPos;
+use crate::db::ResultDb;
 
 pub trait Indexer: Sync + Send {
     fn put(&self, key: Vec<u8>, pos: LogRecordPos) -> Option<LogRecordPos>;
@@ -9,7 +10,7 @@ pub trait Indexer: Sync + Send {
 
     fn delete(&self, key: Vec<u8>) -> Option<LogRecordPos>;
 
-    fn list_keys(&self) -> DbResult<Vec<Bytes>>;
+    fn list_keys(&self) -> ResultDb<Vec<Bytes>>;
 
     fn iterator(&self, options: IteratorOptions) -> Box<dyn IndexIterator>;
 }
