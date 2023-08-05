@@ -1,0 +1,33 @@
+
+[tasks.aarch64-android]
+command = "cargo"
+args = ["build","--target=aarch64-linux-android"]
+env = {}
+
+[tasks.x86_64-android]
+command = "cargo"
+args = ["build","--target=x86_64-linux-android"]
+env = {}
+
+[tasks.x86_64-linux]
+command = "cargo"
+args = ["build","--target=x86_64-unknown-linux-gnu"]
+
+[tasks.x86_64-windows]
+command = "cargo"
+args = ["build","--target=x86_64-pc-windows-gnu"]
+
+[tasks.format]
+install_crate = "rustfmt"
+command = "cargo"
+args = ["fmt", "--", "--emit=files"]
+
+[tasks.all]
+dependencies=[
+    "aarch64-android","x86_64-android","x86_64-linux","x86_64-windows"
+]
+
+[tasks.before_push]
+dependencies=[
+    "format"
+]

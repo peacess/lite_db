@@ -1,0 +1,14 @@
+# Basic
+hard_tabs = false
+max_width = 128
+attr_fn_like_width = 128
+#indent_style = "Block"
+
+# Imports
+reorder_imports = true
+#group_imports = "StdExternalCrate"
+
+# Misc
+match_arm_leading_pipes = "Never"
+match_block_trailing_comma = false
+use_field_init_shorthand = false

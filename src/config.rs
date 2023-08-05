@@ -11,21 +11,16 @@ pub enum IndexType {
 
 #[derive(Clone, PartialEq, Debug)]
 pub enum IOType {
-    // 标准文件 IO
     StdFIO,
-    // 内存文件映射
     MMap,
 }
 
 #[derive(Clone, Debug)]
 pub struct DbConfig {
-    // 数据库目录
     pub db_path: PathBuf,
-    // 数据文件大小
     pub db_file_size: u64,
-    // 索引类型
     pub index_type: IndexType,
-    // merge 的阈值
+    // merge ratio
     pub merge_ratio: f32,
 }
 
@@ -58,4 +53,3 @@ impl Default for DbConfig {
         }
     }
 }
-

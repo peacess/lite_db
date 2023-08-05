@@ -14,6 +14,10 @@ license = "Apache-2.0"
 log = "0.4.19"
 fs2 = "0.4.3"
 
+bytes = "1.4.0"
+
+parking_lot = "0.12.1"
+
 [lib]
 name = "lite_db"
 path = "src/lib.rs"

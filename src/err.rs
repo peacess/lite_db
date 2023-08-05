@@ -7,7 +7,6 @@ pub enum DbErr {
     None,
     Err(String),
     IoErr(std::io::Error),
-
 }
 
 impl Display for DbErr {
@@ -27,7 +26,7 @@ impl DbErr {
     pub fn is_none(&self) -> bool {
         match self {
             DbErr::None => true,
-            _ => false
+            _ => false,
         }
     }
 
@@ -35,7 +34,7 @@ impl DbErr {
     pub fn is_not_none(&self) -> bool {
         match self {
             DbErr::None => false,
-            _ => true
+            _ => true,
         }
     }
 }

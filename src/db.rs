@@ -23,4 +23,3 @@ pub trait Closer {
 pub trait Editor: Getter + Adder + Remover {}
 
 pub trait Db: Editor + Closer {}
-
