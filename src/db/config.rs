@@ -7,6 +7,23 @@ pub enum IndexType {
     BPlusTree,
 }
 
+pub struct WriteBatchOptions {
+    // 一个批次当中的最大数据量
+    pub max_batch_num: usize,
+
+    // 提交时候是否进行 sync 持久化
+    pub sync_writes: bool,
+}
+
+impl Default for WriteBatchOptions {
+    fn default() -> Self {
+        Self {
+            max_batch_num: 10000,
+            sync_writes: true,
+        }
+    }
+}
+
 #[derive(Clone, PartialEq, Debug)]
 pub enum IoType {
     StdIo,
@@ -17,6 +34,8 @@ pub enum IoType {
 pub struct Config {
     pub path_db: PathBuf,
     pub file_size_db: u64,
+    pub sync_writes: bool,
+    pub bytes_per_sync: usize,
     pub index_type: IndexType,
     // merge ratio
     pub merge_ratio: f32,
@@ -46,6 +65,8 @@ impl Default for Config {
         Self {
             path_db: std::env::temp_dir().join("lite_db"),
             file_size_db: 128 * 1024 * 1024,
+            sync_writes: false,
+            bytes_per_sync: 0,
             index_type: IndexType::BPlusTree,
             merge_ratio: 0.5,
         }

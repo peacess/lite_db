@@ -3,7 +3,7 @@ use std::{path::PathBuf, sync::Arc};
 use bytes::Bytes;
 use jammdb::DB;
 
-use crate::db::{decode_log_record_pos, Indexer, IndexIterator, IteratorOptions, LogRecordPos, ResultDb};
+use crate::db::{decode_log_db_pos, Indexer, IndexIterator, IteratorOptions, LogDbPos, ResultDb};
 
 const BPTREE_INDEX_FILE_NAME: &str = "bptree-index";
 const BPTREE_BUCKET_NAME: &str = "bitcask-index";
@@ -16,8 +16,7 @@ pub struct BPlusTree {
 impl BPlusTree {
     pub fn new(dir_path: PathBuf) -> Self {
         // 打开 B+ 树实例，并创建对应的 bucket
-        let bptree =
-            DB::open(dir_path.join(BPTREE_INDEX_FILE_NAME)).expect("failed to open bptree");
+        let bptree = DB::open(dir_path.join(BPTREE_INDEX_FILE_NAME)).expect("failed to open bptree");
         let tree = Arc::new(bptree);
         let tx = tree.tx(true).expect("failed to begin tx");
         tx.get_or_create_bucket(BPTREE_BUCKET_NAME).unwrap();
@@ -28,45 +27,39 @@ impl BPlusTree {
 }
 
 impl Indexer for BPlusTree {
-    fn put(
-        &self,
-        key: Vec<u8>,
-        pos: LogRecordPos,
-    ) -> Option<LogRecordPos> {
+    fn put(&self, key: Vec<u8>, pos: LogDbPos) -> Option<LogDbPos> {
         let mut result = None;
         let tx = self.tree.tx(true).expect("failed to begin tx");
         let bucket = tx.get_bucket(BPTREE_BUCKET_NAME).unwrap();
 
         // 先获取到旧的值
         if let Some(kv) = bucket.get_kv(&key) {
-            let pos = decode_log_record_pos(kv.value().to_vec());
+            let pos = decode_log_db_pos(kv.value().to_vec());
             result = Some(pos);
         }
 
         // put 新值
-        bucket
-            .put(key, pos.encode())
-            .expect("failed to put value in bptree");
+        bucket.put(key, pos.encode()).expect("failed to put value in bptree");
         tx.commit().unwrap();
 
         result
     }
 
-    fn get(&self, key: Vec<u8>) -> Option<LogRecordPos> {
+    fn get(&self, key: Vec<u8>) -> Option<LogDbPos> {
         let tx = self.tree.tx(false).expect("failed to begin tx");
         let bucket = tx.get_bucket(BPTREE_BUCKET_NAME).unwrap();
         if let Some(kv) = bucket.get_kv(key) {
-            return Some(decode_log_record_pos(kv.value().to_vec()));
+            return Some(decode_log_db_pos(kv.value().to_vec()));
         }
         None
     }
 
-    fn delete(&self, key: Vec<u8>) -> Option<LogRecordPos> {
+    fn delete(&self, key: Vec<u8>) -> Option<LogDbPos> {
         let mut result = None;
         let tx = self.tree.tx(true).expect("failed to begin tx");
         let bucket = tx.get_bucket(BPTREE_BUCKET_NAME).unwrap();
         if let Ok(kv) = bucket.delete(key) {
-            let pos = decode_log_record_pos(kv.value().to_vec());
+            let pos = decode_log_db_pos(kv.value().to_vec());
             result = Some(pos);
         }
         tx.commit().unwrap();
@@ -91,7 +84,7 @@ impl Indexer for BPlusTree {
 
         for data in bucket.cursor() {
             let key = data.key().to_vec();
-            let pos = decode_log_record_pos(data.kv().value().to_vec());
+            let pos = decode_log_db_pos(data.kv().value().to_vec());
             items.push((key, pos));
         }
         if options.reverse {
@@ -108,11 +101,11 @@ impl Indexer for BPlusTree {
 
 /// B+ 树索引迭代器
 pub struct BPTreeIterator {
-    items: Vec<(Vec<u8>, LogRecordPos)>,
+    items: Vec<(Vec<u8>, LogDbPos)>,
     // 存储 key+索引
     curr_index: usize,
     // 当前遍历的位置下标
-    options: IteratorOptions,            // 配置项
+    options: IteratorOptions, // 配置项
 }
 
 impl IndexIterator for BPTreeIterator {
@@ -133,7 +126,7 @@ impl IndexIterator for BPTreeIterator {
         };
     }
 
-    fn next(&mut self) -> Option<(&Vec<u8>, &LogRecordPos)> {
+    fn next(&mut self) -> Option<(&Vec<u8>, &LogDbPos)> {
         if self.curr_index >= self.items.len() {
             return None;
         }
@@ -153,7 +146,7 @@ impl IndexIterator for BPTreeIterator {
 mod tests {
     use std::fs;
 
-    use crate::db::LogRecordPos;
+    use crate::db::LogDbPos;
 
     use super::*;
 
@@ -165,7 +158,7 @@ mod tests {
 
         let res1 = bpt.put(
             b"ccbde".to_vec(),
-            LogRecordPos {
+            LogDbPos {
                 file_id: 123,
                 offset: 883,
                 size: 11,
@@ -174,7 +167,7 @@ mod tests {
         assert!(res1.is_none());
         let res2 = bpt.put(
             b"bbed".to_vec(),
-            LogRecordPos {
+            LogDbPos {
                 file_id: 123,
                 offset: 883,
                 size: 11,
@@ -183,7 +176,7 @@ mod tests {
         assert!(res2.is_none());
         let res3 = bpt.put(
             b"aeer".to_vec(),
-            LogRecordPos {
+            LogDbPos {
                 file_id: 123,
                 offset: 883,
                 size: 11,
@@ -192,7 +185,7 @@ mod tests {
         assert!(res3.is_none());
         let res4 = bpt.put(
             b"cccd".to_vec(),
-            LogRecordPos {
+            LogDbPos {
                 file_id: 123,
                 offset: 883,
                 size: 11,
@@ -202,7 +195,7 @@ mod tests {
 
         let res5 = bpt.put(
             b"cccd".to_vec(),
-            LogRecordPos {
+            LogDbPos {
                 file_id: 77,
                 offset: 11,
                 size: 11,
@@ -227,7 +220,7 @@ mod tests {
 
         bpt.put(
             b"ccbde".to_vec(),
-            LogRecordPos {
+            LogDbPos {
                 file_id: 123,
                 offset: 883,
                 size: 11,
@@ -238,7 +231,7 @@ mod tests {
 
         bpt.put(
             b"ccbde".to_vec(),
-            LogRecordPos {
+            LogDbPos {
                 file_id: 125,
                 offset: 77773,
                 size: 11,
@@ -261,7 +254,7 @@ mod tests {
 
         bpt.put(
             b"ccbde".to_vec(),
-            LogRecordPos {
+            LogDbPos {
                 file_id: 123,
                 offset: 883,
                 size: 11,
@@ -290,7 +283,7 @@ mod tests {
 
         bpt.put(
             b"ccbde".to_vec(),
-            LogRecordPos {
+            LogDbPos {
                 file_id: 123,
                 offset: 883,
                 size: 11,
@@ -298,7 +291,7 @@ mod tests {
         );
         bpt.put(
             b"bbed".to_vec(),
-            LogRecordPos {
+            LogDbPos {
                 file_id: 123,
                 offset: 883,
                 size: 11,
@@ -306,7 +299,7 @@ mod tests {
         );
         bpt.put(
             b"aeer".to_vec(),
-            LogRecordPos {
+            LogDbPos {
                 file_id: 123,
                 offset: 883,
                 size: 11,
@@ -314,7 +307,7 @@ mod tests {
         );
         bpt.put(
             b"cccd".to_vec(),
-            LogRecordPos {
+            LogDbPos {
                 file_id: 123,
                 offset: 883,
                 size: 11,
@@ -335,7 +328,7 @@ mod tests {
 
         bpt.put(
             b"ccbde".to_vec(),
-            LogRecordPos {
+            LogDbPos {
                 file_id: 123,
                 offset: 883,
                 size: 11,
@@ -343,7 +336,7 @@ mod tests {
         );
         bpt.put(
             b"bbed".to_vec(),
-            LogRecordPos {
+            LogDbPos {
                 file_id: 123,
                 offset: 883,
                 size: 11,
@@ -351,7 +344,7 @@ mod tests {
         );
         bpt.put(
             b"aeer".to_vec(),
-            LogRecordPos {
+            LogDbPos {
                 file_id: 123,
                 offset: 883,
                 size: 11,
@@ -359,7 +352,7 @@ mod tests {
         );
         bpt.put(
             b"cccd".to_vec(),
-            LogRecordPos {
+            LogDbPos {
                 file_id: 123,
                 offset: 883,
                 size: 11,

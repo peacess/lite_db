@@ -9,11 +9,12 @@ pub type ResultDb<T> = Result<T, ErrDb>;
 pub enum ErrDb {
     None,
     NotFindKey,
+    InvalidParameter,
+    InvalidBatch,
     Err(String),
-    InvalidLogRecordCrc,
+    InvalidLogDbCrc,
     IoErr(io::Error),
     ParseIntError(std::num::ParseIntError),
-
 }
 
 impl ErrDb {
@@ -46,8 +47,10 @@ impl Display for ErrDb {
         match self {
             ErrDb::None => write!(f, "None"),
             ErrDb::NotFindKey => write!(f, "not find key"),
+            ErrDb::InvalidParameter => write!(f, "invalid parameter"),
+            ErrDb::InvalidBatch => write!(f, "invalid batch"),
             ErrDb::Err(e) => write!(f, "{}", e),
-            ErrDb::InvalidLogRecordCrc => write!(f, "invalid log record crc"),
+            ErrDb::InvalidLogDbCrc => write!(f, "invalid log db crc"),
             ErrDb::IoErr(e) => write!(f, "{}", e),
             ErrDb::ParseIntError(e) => write!(f, "{}", e),
         }
@@ -61,13 +64,13 @@ impl PartialEq for ErrDb {
         match (self, other) {
             (ErrDb::None, ErrDb::None) => true,
             (ErrDb::NotFindKey, ErrDb::NotFindKey) => true,
+            (ErrDb::InvalidParameter, ErrDb::InvalidParameter) => true,
+            (ErrDb::InvalidBatch, ErrDb::InvalidBatch) => true,
             (ErrDb::Err(s), ErrDb::Err(s2)) => s.eq(s2),
-            (ErrDb::InvalidLogRecordCrc, ErrDb::InvalidLogRecordCrc) => true,
-            (ErrDb::IoErr(e1), ErrDb::IoErr(e2)) => {
-                (e1.kind() == e2.kind()) && (e1.to_string() == e2.to_string())
-            }
+            (ErrDb::InvalidLogDbCrc, ErrDb::InvalidLogDbCrc) => true,
+            (ErrDb::IoErr(e1), ErrDb::IoErr(e2)) => (e1.kind() == e2.kind()) && (e1.to_string() == e2.to_string()),
             (ErrDb::ParseIntError(s1), ErrDb::ParseIntError(e2)) => s1.eq(e2),
-            _ => false
+            _ => false,
         }
     }
 }

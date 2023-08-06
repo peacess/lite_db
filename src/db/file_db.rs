@@ -5,8 +5,8 @@ use bytes::{Buf, BytesMut};
 use parking_lot::RwLock;
 use prost::{decode_length_delimiter, length_delimiter_len};
 
+use crate::db::{LogDb, LogDbPos, LogDbType, max_log_db_header_size, ReadLogDb};
 use crate::db::{ErrDb, IoType, ResultDb};
-use crate::db::{LogRecord, LogRecordPos, LogRecordType, max_log_record_header_size, ReadLogRecord};
 use crate::io_db;
 use crate::io_db::new_dbio;
 
@@ -89,9 +89,9 @@ impl FileDb {
         *read_guard
     }
 
-    pub fn read_log_record(&self, offset: u64) -> ResultDb<ReadLogRecord> {
+    pub fn read_log_db(&self, offset: u64) -> ResultDb<ReadLogDb> {
         // 先读取出 header 部分的数据
-        let mut header_buf = BytesMut::zeroed(max_log_record_header_size());
+        let mut header_buf = BytesMut::zeroed(max_log_db_header_size());
 
         self.db_io.read(&mut header_buf, offset)?;
 
@@ -108,31 +108,28 @@ impl FileDb {
         }
 
         // 获取实际的 header 大小
-        let actual_header_size =
-            length_delimiter_len(key_size) + length_delimiter_len(value_size) + 1;
+        let actual_header_size = length_delimiter_len(key_size) + length_delimiter_len(value_size) + 1;
 
         // 读取实际的 key 和 value，最后的 4 个字节是 crc 校验值
         let mut kv_buf = BytesMut::zeroed(key_size + value_size + 4);
-        self.db_io
-            .read(&mut kv_buf, offset + actual_header_size as u64)?;
+        self.db_io.read(&mut kv_buf, offset + actual_header_size as u64)?;
 
-        // 构造 LogRecord
-        let log_record = LogRecord {
+        let log_db = LogDb {
             key: kv_buf.get(..key_size).unwrap().to_vec(),
             value: kv_buf.get(key_size..kv_buf.len() - 4).unwrap().to_vec(),
-            rec_type: LogRecordType::from_u8(rec_type),
+            rec_type: LogDbType::from_u8(rec_type),
         };
 
         // 向前移动到最后的 4 个字节，就是 crc 的值
         kv_buf.advance(key_size + value_size);
 
-        if kv_buf.get_u32() != log_record.get_crc() {
-            return Err(ErrDb::InvalidLogRecordCrc);
+        if kv_buf.get_u32() != log_db.get_crc() {
+            return Err(ErrDb::InvalidLogDbCrc);
         }
 
         // 构造结果并返回
-        Ok(ReadLogRecord {
-            record: log_record,
+        Ok(ReadLogDb {
+            log_db: log_db,
             size: actual_header_size + key_size + value_size + 4,
         })
     }
@@ -146,14 +143,14 @@ impl FileDb {
         Ok(n_bytes)
     }
 
-    pub fn write_hint_record(&self, key: Vec<u8>, pos: LogRecordPos) -> ResultDb<()> {
-        let hint_record = LogRecord {
+    pub fn write_hint_log_db(&self, key: Vec<u8>, pos: LogDbPos) -> ResultDb<()> {
+        let log_db = LogDb {
             key,
             value: pos.encode(),
-            rec_type: LogRecordType::NORMAL,
+            rec_type: LogDbType::NORMAL,
         };
-        let enc_record = hint_record.encode();
-        self.write(&enc_record)?;
+        let enc_log_db = log_db.encode();
+        self.write(&enc_log_db)?;
         Ok(())
     }
 

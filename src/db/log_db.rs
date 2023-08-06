@@ -6,7 +6,7 @@ use prost::{
 };
 
 #[derive(PartialEq, Clone, Copy, Debug)]
-pub enum LogRecordType {
+pub enum LogDbType {
     // 正常 put 的数据
     NORMAL = 1,
 
@@ -17,35 +17,35 @@ pub enum LogRecordType {
     TXNFINISHED = 3,
 }
 
-/// LogRecord 写入到数据文件的记录
-/// 之所以叫日志，是因为数据文件中的数据是追加写入的，类似日志的格式
+/// LogDb log of db
 #[derive(Debug)]
-pub struct LogRecord {
+pub struct LogDb {
     pub(crate) key: Vec<u8>,
     pub(crate) value: Vec<u8>,
-    pub(crate) rec_type: LogRecordType,
+    pub(crate) rec_type: LogDbType,
 }
 
 #[derive(Clone, Copy, Debug)]
-pub struct LogRecordPos {
+pub struct LogDbPos {
     pub(crate) file_id: u32,
     pub(crate) offset: u64,
     pub(crate) size: u32,
 }
 
 #[derive(Debug)]
-pub struct ReadLogRecord {
-    pub(crate) record: LogRecord,
+pub struct ReadLogDb {
+    pub(crate) log_db: LogDb,
     pub(crate) size: usize,
 }
 
-pub struct TransactionRecord {
-    pub(crate) record: LogRecord,
-    pub(crate) pos: LogRecordPos,
+#[derive(Debug)]
+pub struct TransactionLogDb {
+    pub(crate) log_db: LogDb,
+    pub(crate) pos: LogDbPos,
 }
 
-impl LogRecord {
-    // encode 对 LogRecord 进行编码，返回字节数组及长度
+impl LogDb {
+    // encode 对 LogDb 进行编码，返回字节数组及长度
     //
     //	+-------------+--------------+-------------+--------------+-------------+-------------+
     //	|  type 类型   |    key size |   value size |      key    |      value   |  crc 校验值  |
@@ -86,7 +86,7 @@ impl LogRecord {
         (buf.to_vec(), crc)
     }
 
-    // LogRecord 编码后的长度
+    // LogDb 编码后的长度
     fn encoded_length(&self) -> usize {
         std::mem::size_of::<u8>()
             + length_delimiter_len(self.key.len())
@@ -97,18 +97,18 @@ impl LogRecord {
     }
 }
 
-impl LogRecordType {
+impl LogDbType {
     pub fn from_u8(v: u8) -> Self {
         match v {
-            1 => LogRecordType::NORMAL,
-            2 => LogRecordType::DELETED,
-            3 => LogRecordType::TXNFINISHED,
-            _ => panic!("unknown log record type"),
+            1 => LogDbType::NORMAL,
+            2 => LogDbType::DELETED,
+            3 => LogDbType::TXNFINISHED,
+            _ => panic!("unknown log db type"),
         }
     }
 }
 
-impl LogRecordPos {
+impl LogDbPos {
     pub fn encode(&self) -> Vec<u8> {
         let mut buf = BytesMut::new();
         encode_varint(self.file_id as u64, &mut buf);
@@ -118,27 +118,27 @@ impl LogRecordPos {
     }
 }
 
-pub fn max_log_record_header_size() -> usize {
+pub fn max_log_db_header_size() -> usize {
     std::mem::size_of::<u8>() + length_delimiter_len(std::u32::MAX as usize) * 2
 }
 
-pub fn decode_log_record_pos(pos: Vec<u8>) -> LogRecordPos {
+pub fn decode_log_db_pos(pos: Vec<u8>) -> LogDbPos {
     let mut buf = BytesMut::new();
     buf.put_slice(&pos);
 
     let fid = match decode_varint(&mut buf) {
         Ok(fid) => fid,
-        Err(e) => panic!("decode log record pos err: {}", e),
+        Err(e) => panic!("decode log db pos err: {}", e),
     };
     let offset = match decode_varint(&mut buf) {
         Ok(offset) => offset,
-        Err(e) => panic!("decode log record pos err: {}", e),
+        Err(e) => panic!("decode log db pos err: {}", e),
     };
     let size = match decode_varint(&mut buf) {
         Ok(size) => size,
-        Err(e) => panic!("decode log record pos err: {}", e),
+        Err(e) => panic!("decode log db pos err: {}", e),
     };
-    LogRecordPos {
+    LogDbPos {
         file_id: fid as u32,
         offset,
         size: size as u32,
@@ -150,35 +150,35 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_log_record_encode_and_crc() {
-        // 正常的一条 LogRecord 编码
-        let rec1 = LogRecord {
+    fn test_log_db_encode_and_crc() {
+        // 正常的一条 LogDb 编码
+        let log_db1 = LogDb {
             key: "name".as_bytes().to_vec(),
             value: "bitcask-rs".as_bytes().to_vec(),
-            rec_type: LogRecordType::NORMAL,
+            rec_type: LogDbType::NORMAL,
         };
-        let enc1 = rec1.encode();
-        assert!(enc1.len() > 5);
-        assert_eq!(1020360578, rec1.get_crc());
+        let en_log_db1 = log_db1.encode();
+        assert!(en_log_db1.len() > 5);
+        assert_eq!(1020360578, log_db1.get_crc());
 
-        // LogRecord 的 value 为空
-        let rec2 = LogRecord {
+        // LogDb 的 value 为空
+        let log_db2 = LogDb {
             key: "name".as_bytes().to_vec(),
             value: Default::default(),
-            rec_type: LogRecordType::NORMAL,
+            rec_type: LogDbType::NORMAL,
         };
-        let enc2 = rec2.encode();
-        assert!(enc2.len() > 5);
-        assert_eq!(3756865478, rec2.get_crc());
+        let en_log_db2 = log_db2.encode();
+        assert!(en_log_db2.len() > 5);
+        assert_eq!(3756865478, log_db2.get_crc());
 
         // 类型为 Deleted 的情况
-        let rec3 = LogRecord {
+        let log_db3 = LogDb {
             key: "name".as_bytes().to_vec(),
             value: "bitcask-rs".as_bytes().to_vec(),
-            rec_type: LogRecordType::DELETED,
+            rec_type: LogDbType::DELETED,
         };
-        let enc3 = rec3.encode();
-        assert!(enc3.len() > 5);
-        assert_eq!(1867197446, rec3.get_crc());
+        let en_log_db3 = log_db3.encode();
+        assert!(en_log_db3.len() > 5);
+        assert_eq!(1867197446, log_db3.get_crc());
     }
 }

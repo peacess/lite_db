@@ -7,7 +7,7 @@ pub use log_db::*;
 
 mod config;
 mod db;
-mod file_db;
-mod log_db;
 mod err;
+mod file_db;
 mod index;
+mod log_db;

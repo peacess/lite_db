@@ -15,7 +15,10 @@ pub trait Adder {
 }
 
 pub trait Remover {
-    fn remove(&self, key: &Key) -> ResultDb<Value>;
+    /// if can not find Key，then return None
+    fn remove(&self, key: &Key) -> ResultDb<Option<Value>>;
+    ///
+    fn remove_fast(&self, key: &Key) -> ResultDb<()>;
 }
 
 pub trait Closer {
@@ -24,4 +27,6 @@ pub trait Closer {
 
 pub trait Editor: Getter + Adder + Remover {}
 
-pub trait Db: Editor + Closer {}
+pub trait Db: Editor + Closer {
+    fn sync(&self) -> ResultDb<()>;
+}

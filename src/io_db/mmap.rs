@@ -1,9 +1,7 @@
 use std::{fs, fs::OpenOptions, path::PathBuf};
-use std::io::Write;
 
-use bytes::BufMut;
 use log::error;
-use memmap2::{MmapMut, MmapOptions, RemapOptions};
+use memmap2::{MmapMut, RemapOptions};
 use parking_lot::RwLock;
 
 use crate::db::{ErrDb, ResultDb};
@@ -17,12 +15,7 @@ pub struct MMapIo {
 
 impl MMapIo {
     pub fn new(file_name: PathBuf) -> ResultDb<Self> {
-        match OpenOptions::new()
-            .create(true)
-            .read(true)
-            .write(true)
-            .open(file_name)
-        {
+        match OpenOptions::new().create(true).read(true).write(true).open(file_name) {
             Ok(file) => {
                 let map = unsafe { MmapMut::map_mut(&file)? };
                 return Ok(MMapIo {
@@ -111,11 +104,7 @@ mod tests {
 
         let file = {
             let path = PathBuf::from("/tmp/mmap-test.data");
-            OpenOptions::new()
-                .create(true)
-                .read(true)
-                .write(true)
-                .open(path).unwrap()
+            OpenOptions::new().create(true).read(true).write(true).open(path).unwrap()
         };
         file.set_len(final_len as u64).unwrap();
 
@@ -123,10 +112,7 @@ mod tests {
         assert_eq!(mmap.len(), initial_len);
         assert_eq!(&mmap[..], &zeros[..initial_len]);
 
-        unsafe {
-            mmap.remap(final_len, RemapOptions::new().may_move(true))
-                .unwrap()
-        };
+        unsafe { mmap.remap(final_len, RemapOptions::new().may_move(true)).unwrap() };
 
         // The size should have been updated
         assert_eq!(mmap.len(), final_len);
