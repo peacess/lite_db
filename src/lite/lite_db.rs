@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::fs;
+use std::io::IsTerminal;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -13,7 +14,7 @@ use crate::db::{
     Adder, Closer, Config, DATA_FILE_NAME_SUFFIX, Db, Editor, ErrDb, Getter, Indexer, IoType, Key, Remover, ResultDb, Value,
 };
 use crate::db::{LogDbPos, LogDbType};
-use crate::db::IndexType::BPlusTree;
+use crate::db::IndexType::BTree;
 use crate::index::new_indexer;
 use crate::lite::batch::{log_db_key_with_seq, NON_TRANSACTION_SEQ_NO, WriteBatch};
 use crate::lite::Table;
@@ -30,7 +31,6 @@ pub struct LiteDb {
     pub(crate) batch_commit_lock: Mutex<()>,
     // 事务序列号，全局递增
     pub(crate) seq_no: AtomicUsize,
-    // 防止多个线程同时 merge
     pub(crate) merging_lock: Mutex<()>,
     // 事务序列号文件是否存在
     pub(crate) seq_file_exists: bool,
@@ -105,7 +105,7 @@ impl LiteDb {
             }
         };
 
-        let index = new_indexer(config.index_type.clone(), config.path_db.clone());
+        let index = new_indexer(config.index_type.clone(), config.path_db.clone())?;
         Ok(LiteDb {
             config,
             active_file: RwLock::new(active_file),
@@ -198,7 +198,7 @@ impl LiteDb {
 
     //batch
     pub fn new_write_batch(&self, options: WriteBatchOptions) -> ResultDb<WriteBatch> {
-        if self.config.index_type == BPlusTree && !self.seq_file_exists && !self.is_initial {
+        if self.config.index_type == BTree && !self.seq_file_exists && !self.is_initial {
             return Err(ErrDb::InvalidBatch);
         }
         Ok(WriteBatch {
@@ -340,6 +340,14 @@ impl Db for LiteDb {
     }
 }
 
+impl Drop for LiteDb {
+    fn drop(&mut self) {
+        if let Err(e) = self.close() {
+            log::error!("error whiling close engine: {}", e);
+        }
+    }
+}
+
 fn load_data_files(dir_path: PathBuf, use_mmap: bool) -> ResultDb<Vec<FileDb>> {
     let dir = fs::read_dir(dir_path.clone())?;
 
@@ -376,4 +384,279 @@ fn load_data_files(dir_path: PathBuf, use_mmap: bool) -> ResultDb<Vec<FileDb>> {
     }
 
     Ok(data_files)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::PathBuf;
+
+    use bytes::Bytes;
+
+    use crate::db::{Adder, Closer, Config, Db, ErrDb, Getter, Remover};
+    use crate::kits::rand_kv::{get_test_key, get_test_value};
+    use crate::lite::LiteDb;
+
+    #[test]
+    fn test_lite_db_put() {
+        let mut config = Config::default();
+        config.path_db = PathBuf::from("/tmp/bitcask-rs-put");
+        config.file_size_db = 64 * 1024 * 1024;
+        let lite_db = LiteDb::open(config.clone()).expect("failed to open engine");
+
+        // 1.正常 Put 一条数据
+        let res1 = lite_db.add(&get_test_key(11), &get_test_value(11));
+        assert!(res1.is_ok());
+        let res2 = lite_db.get(&get_test_key(11));
+        assert!(res2.is_ok());
+        assert!(res2.unwrap().len() > 0);
+
+        // 2.重复 Put key 相同的数据
+        let res3 = lite_db.add(&get_test_key(22), &get_test_value(22));
+        assert!(res3.is_ok());
+        let res4 = lite_db.add(&get_test_key(22), &Bytes::from("a new value"));
+        assert!(res4.is_ok());
+        let res5 = lite_db.get(&get_test_key(22));
+        assert!(res5.is_ok());
+        assert_eq!(res5.unwrap(), Bytes::from("a new value"));
+
+        // 3.key 为空
+        let res6 = lite_db.add(&Bytes::new(), &get_test_value(123));
+        assert_eq!(ErrDb::InvalidParameter, res6.err().unwrap());
+
+        // 4.value 为空
+        let res7 = lite_db.add(&get_test_key(33), &Bytes::new());
+        assert!(res7.is_ok());
+        let res8 = lite_db.get(&get_test_key(33));
+        assert_eq!(0, res8.ok().unwrap().len());
+
+        // 5.写到数据文件进行了转换
+        for i in 0..=1000000 {
+            let res = lite_db.add(&get_test_key(i), &get_test_value(i));
+            assert!(res.is_ok());
+        }
+
+        // 6.重启后再 Put 数据
+        std::mem::drop(lite_db);
+
+        let lite_db2 = LiteDb::open(config.clone()).expect("failed to open engine");
+        let res9 = lite_db2.add(&get_test_key(55), &get_test_value(55));
+        assert!(res9.is_ok());
+
+        let res10 = lite_db2.get(&get_test_key(55));
+        assert_eq!(res10.unwrap(), &get_test_value(55));
+
+        // 删除测试的文件夹
+        std::fs::remove_dir_all(config.path_db.clone()).expect("failed to remove path");
+    }
+
+    #[test]
+    fn test_lite_db_get() {
+        let mut confg = Config::default();
+        confg.path_db = PathBuf::from("/tmp/bitcask-rs-get");
+        confg.file_size_db = 64 * 1024 * 1024;
+        let lite_db = LiteDb::open(confg.clone()).expect("failed to open engine");
+
+        // 1.正常读取一条数据
+        let res1 = lite_db.add(&get_test_key(111), &get_test_value(111));
+        assert!(res1.is_ok());
+        let res2 = lite_db.get(&get_test_key(111));
+        assert!(res2.is_ok());
+        assert!(res2.unwrap().len() > 0);
+
+        // 2.读取一个不存在的 key
+        let res3 = lite_db.get(&Bytes::from("not existed key"));
+        assert!(matches!(res3, Err(ErrDb::NotFindKey)));
+
+        // 3.值被重复 Put 后在读取
+        let res4 = lite_db.add(&get_test_key(222), &get_test_value(222));
+        assert!(res4.is_ok());
+        let res5 = lite_db.add(&get_test_key(222), &Bytes::from("a new value"));
+        assert!(res5.is_ok());
+        let res6 = lite_db.get(&get_test_key(222));
+        let ttt = std::str::from_utf8(res6.as_ref().unwrap().as_ref()).unwrap();
+        println!("{}", std::str::from_utf8(res6.as_ref().unwrap().as_ref()).unwrap());
+        assert_eq!(Bytes::from("a new value"), res6.unwrap());
+
+        // 4.值被删除后再 Get
+        let res7 = lite_db.add(&get_test_key(333), &get_test_value(333));
+        assert!(res7.is_ok());
+        let res8 = lite_db.remove(&get_test_key(333));
+        assert!(res8.is_ok());
+        let res9 = lite_db.get(&get_test_key(333));
+        assert!(matches!(res9, Err(ErrDb::NotFindKey)));
+
+        // 5.转换为了旧的数据文件，从旧的数据文件上获取 value
+        for i in 500..=1000000 {
+            let res = lite_db.add(&get_test_key(i), &get_test_value(i));
+            assert!(res.is_ok());
+        }
+        let res10 = lite_db.get(&get_test_key(505));
+        assert_eq!(get_test_value(505), res10.unwrap());
+
+        // 6.重启后，前面写入的数据都能拿到
+        std::mem::drop(lite_db);
+
+        let lite_db2 = LiteDb::open(confg.clone()).expect("failed to open engine");
+        let res11 = lite_db2.get(&get_test_key(111));
+        assert_eq!(get_test_value(111), res11.unwrap());
+        let res12 = lite_db2.get(&get_test_key(222));
+        assert_eq!(Bytes::from("a new value"), res12.unwrap());
+        let res13 = lite_db2.get(&get_test_key(333));
+        assert!(matches!(res13, Err(ErrDb::NotFindKey)));
+
+        // 删除测试的文件夹
+        std::fs::remove_dir_all(confg.path_db.clone()).expect("failed to remove path");
+    }
+
+    #[test]
+    fn test_lite_db_delete() {
+        let mut config = Config::default();
+        config.path_db = PathBuf::from("/tmp/bitcask-rs-delete");
+        config.file_size_db = 64 * 1024 * 1024;
+        let lite_db = LiteDb::open(config.clone()).expect("failed to open engine");
+
+        // 1.正常删除一个存在的 key
+        let re1 = lite_db.add(&get_test_key(111), &get_test_value(111));
+        assert!(re1.is_ok());
+        let re2 = lite_db.remove(&get_test_key(111));
+        assert!(re2.is_ok());
+        let re3 = lite_db.get(&get_test_key(111));
+        assert!(matches!(re3, Err(ErrDb::NotFindKey)));
+
+        // 2.删除一个不存在的 key
+        let re4 = lite_db.remove(&Bytes::from("not-existed-key"));
+        assert!(re4.is_ok());
+
+        // 3.删除一个空的 key
+        let re5 = lite_db.remove(&Bytes::new());
+        assert!(matches!(re5, Err(ErrDb::InvalidParameter)));
+
+        // 4.值被删除之后重新 Put
+        let re6 = lite_db.add(&get_test_key(222), &get_test_value(222));
+        assert!(re6.is_ok());
+        let res7 = lite_db.remove(&get_test_key(222));
+        assert!(res7.is_ok());
+        let res8 = lite_db.add(&get_test_key(222), &Bytes::from("a new value"));
+        assert!(res8.is_ok());
+        let res9 = lite_db.get(&get_test_key(222));
+        assert_eq!(Bytes::from("a new value"), res9.unwrap());
+
+        // 5.重启后再 Put 数据
+        std::mem::drop(lite_db);
+
+        let lite_db2 = LiteDb::open(config.clone()).expect("failed to open engine");
+        let res10 = lite_db2.get(&get_test_key(111));
+        assert!(matches!(res10, Err(ErrDb::NotFindKey)));
+        let res11 = lite_db2.get(&get_test_key(222));
+        assert_eq!(Bytes::from("a new value"), res11.unwrap());
+
+        // 删除测试的文件夹
+        std::fs::remove_dir_all(config.path_db.clone()).expect("failed to remove path");
+    }
+
+    #[test]
+    fn test_engine_close() {
+        let mut config = Config::default();
+        config.path_db = PathBuf::from("/tmp/bitcask-rs-close");
+        config.file_size_db = 64 * 1024 * 1024;
+        let lite_db = LiteDb::open(config.clone()).expect("failed to open engine");
+
+        let res1 = lite_db.add(&get_test_key(222), &get_test_value(222));
+        assert!(res1.is_ok());
+
+        let close_res = lite_db.close();
+        assert!(close_res.is_ok());
+
+        // 删除测试的文件夹
+        std::fs::remove_dir_all(config.path_db.clone()).expect("failed to remove path");
+    }
+
+    #[test]
+    fn test_engine_sync() {
+        let mut config = Config::default();
+        config.path_db = PathBuf::from("/tmp/bitcask-rs-sync");
+        config.file_size_db = 64 * 1024 * 1024;
+        let lite_db = LiteDb::open(config.clone()).expect("failed to open engine");
+
+        let res1 = lite_db.add(&get_test_key(222), &get_test_value(222));
+        assert!(res1.is_ok());
+
+        let close_res = lite_db.sync();
+        assert!(close_res.is_ok());
+
+        // 删除测试的文件夹
+        std::fs::remove_dir_all(config.path_db.clone()).expect("failed to remove path");
+    }
+
+    #[test]
+    fn test_engine_filelock() {
+        let mut config = Config::default();
+        config.path_db = PathBuf::from("/tmp/bitcask-rs-flock");
+        let lite_db = LiteDb::open(config.clone()).expect("failed to open engine");
+
+        let lite_db2 = LiteDb::open(config.clone());
+        let _eof = ErrDb::new_io_eof("");
+        assert!(matches!(lite_db2, Err(_eof)));
+
+        let re2 = lite_db.close();
+        assert!(matches!(re2,Ok(())));
+        // std::mem::drop(lite_db);
+
+        let re3 = LiteDb::open(config.clone());
+        assert!(re3.is_ok());
+
+        // 删除测试的文件夹
+        std::fs::remove_dir_all(config.path_db.clone()).expect("failed to remove path");
+    }
+
+    #[test]
+    fn test_engine_stat() {
+        let mut config = Config::default();
+        config.path_db = PathBuf::from("/tmp/bitcask-rs-stat");
+        let lite_db = LiteDb::open(config.clone()).expect("failed to open engine");
+
+        for i in 0..=10000 {
+            let res = lite_db.add(&get_test_key(i), &get_test_value(i));
+            assert!(res.is_ok());
+        }
+        for i in 0..=1000 {
+            let res = lite_db.add(&get_test_key(i), &get_test_value(i));
+            assert!(res.is_ok());
+        }
+        for i in 2000..=5000 {
+            let res = lite_db.remove(&get_test_key(i));
+            assert!(res.is_ok());
+        }
+
+        // let stat = lite_db.stat().unwrap();
+        // assert!(stat.reclaim_size > 0);
+
+        // 删除测试的文件夹
+        std::fs::remove_dir_all(config.path_db.clone()).expect("failed to remove path");
+    }
+
+    // #[test]
+    // fn test_engine_backup() {
+    //     let mut config = Config::default();
+    //     config.path_db = PathBuf::from("/tmp/bitcask-rs-backup");
+    //     let lite_db = LiteDb::open(config.clone()).expect("failed to open engine");
+    //
+    //     for i in 0..=10000 {
+    //         let res = lite_db.add(&get_test_key(i), &get_test_value(i));
+    //         assert!(res.is_ok());
+    //     }
+    //
+    //     let backup_dir = PathBuf::from("/tmp/bitcask-rs-backup-test");
+    //     let bak_res = lite_db.backup(backup_dir.clone());
+    //     assert!(bak_res.is_ok());
+    //
+    //     let mut config2 = Config::default();
+    //     config2.path_db = backup_dir.clone();
+    //     let lite_db2 = LiteDb::open(config2);
+    //     assert!(lite_db2.is_ok());
+    //
+    //     // 删除测试的文件夹
+    //     std::fs::remove_dir_all(config.path_db.clone()).expect("failed to remove path");
+    //     std::fs::remove_dir_all(backup_dir).expect("failed to remove path");
+    // }
 }

@@ -1,21 +1,20 @@
-
 [tasks.aarch64-android]
 command = "cargo"
-args = ["build","--target=aarch64-linux-android"]
-env = {}
+args = ["build", "--target=aarch64-linux-android"]
+env = { }
 
 [tasks.x86_64-android]
 command = "cargo"
-args = ["build","--target=x86_64-linux-android"]
-env = {}
+args = ["build", "--target=x86_64-linux-android"]
+env = { }
 
 [tasks.x86_64-linux]
 command = "cargo"
-args = ["build","--target=x86_64-unknown-linux-gnu"]
+args = ["build", "--target=x86_64-unknown-linux-gnu"]
 
 [tasks.x86_64-windows]
 command = "cargo"
-args = ["build","--target=x86_64-pc-windows-gnu"]
+args = ["build", "--target=x86_64-pc-windows-gnu"]
 
 
 #[tasks.wasm32]
@@ -28,11 +27,11 @@ command = "cargo"
 args = ["fmt", "--", "--emit=files"]
 
 [tasks.all]
-dependencies=[
-    "aarch64-android","x86_64-android","x86_64-linux","x86_64-windows"
+dependencies = [
+    "aarch64-android", "x86_64-android", "x86_64-linux", "x86_64-windows"
 ]
 
 [tasks.before_push]
-dependencies=[
+dependencies = [
     "format"
 ]

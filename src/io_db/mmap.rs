@@ -88,41 +88,9 @@ impl DbIo for MMapIo {
 mod tests {
     use std::fs;
 
-    use memmap2::MmapOptions;
-
     use crate::io_db::MMapIo;
 
     use super::*;
-
-    #[test]
-    fn test_mm() {
-        let initial_len = 128;
-        let final_len = 2000;
-
-        let zeros = vec![0u8; final_len];
-        let incr: Vec<u8> = (0..final_len).map(|v| v as u8).collect();
-
-        let file = {
-            let path = PathBuf::from("/tmp/mmap-test.data");
-            OpenOptions::new().create(true).read(true).write(true).open(path).unwrap()
-        };
-        file.set_len(final_len as u64).unwrap();
-
-        let mut mmap = unsafe { MmapOptions::new().len(initial_len).map_mut(&file).unwrap() };
-        assert_eq!(mmap.len(), initial_len);
-        assert_eq!(&mmap[..], &zeros[..initial_len]);
-
-        unsafe { mmap.remap(final_len, RemapOptions::new().may_move(true)).unwrap() };
-
-        // The size should have been updated
-        assert_eq!(mmap.len(), final_len);
-
-        // Should still be all zeros
-        assert_eq!(&mmap[..], &zeros);
-
-        // Write out to the whole expanded slice.
-        mmap.copy_from_slice(&incr);
-    }
 
     #[test]
     fn test_mmap_read() {
@@ -138,8 +106,8 @@ mod tests {
             let mmap_io1 = mmap_io1.ok().unwrap();
             let mut buf1 = [0u8; 10];
             let read_io1 = mmap_io1.read(&mut buf1, 0);
-            let err_eof = ErrDb::new_io_eof("");
-            assert!(matches!(read_io1, Err(t)));
+            let _err_eof = ErrDb::new_io_eof("");
+            assert!(matches!(read_io1, Err(_err_eof)));
         }
 
         // data
@@ -152,8 +120,8 @@ mod tests {
             buf1[0] = 1;
             buf1[1] = 3;
             let read_io2 = mmap_io2.read(&mut buf1, 2);
-            let err_eof = ErrDb::new_io_eof("");
-            assert!(matches!(read_io2, Err(t)));
+            let _err_eof = ErrDb::new_io_eof("");
+            assert!(matches!(read_io2, Err(_err_eof)));
 
             let read_io2 = mmap_io2.write(&buf1);
             assert!(matches!(read_io2, Ok(2)));

@@ -1,11 +1,12 @@
 use std::path::PathBuf;
 
-use crate::db::{Indexer, IndexType};
+use crate::db::{Indexer, IndexType, ResultDb};
 
-mod bptree;
+// mod bptree;
+mod btree;
 
-pub fn new_indexer(index_type: IndexType, dir_path: PathBuf) -> Box<dyn Indexer> {
+pub fn new_indexer(index_type: IndexType, _dir_path: PathBuf) -> ResultDb<Box<dyn Indexer>> {
     match index_type {
-        IndexType::BPlusTree => Box::new(bptree::BPlusTree::new(dir_path)),
+        IndexType::BTree => Ok(Box::new(btree::BTree::new())),
     }
 }

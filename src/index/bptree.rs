@@ -1,29 +1,28 @@
-use std::{path::PathBuf, sync::Arc};
+use std::path::PathBuf;
 
 use bytes::Bytes;
 use jammdb::DB;
 
-use crate::db::{decode_log_db_pos, Indexer, IndexIterator, IteratorOptions, LogDbPos, ResultDb};
+use crate::db::{decode_log_db_pos, ErrDb, Indexer, IndexIterator, IteratorOptions, LogDbPos, ResultDb};
 
 const BPTREE_INDEX_FILE_NAME: &str = "bptree-index";
 const BPTREE_BUCKET_NAME: &str = "bitcask-index";
 
 // B+树索引
 pub struct BPlusTree {
-    tree: Arc<DB>,
+    tree: DB,
 }
 
 impl BPlusTree {
-    pub fn new(dir_path: PathBuf) -> Self {
-        // 打开 B+ 树实例，并创建对应的 bucket
+    pub fn new(dir_path: PathBuf) -> ResultDb<Self> {
         let bptree = DB::open(dir_path.join(BPTREE_INDEX_FILE_NAME)).expect("failed to open bptree");
-        let tree = Arc::new(bptree);
-        let tx = tree.tx(true).expect("failed to begin tx");
-        tx.get_or_create_bucket(BPTREE_BUCKET_NAME).unwrap();
-        tx.commit().unwrap();
-
-        Self { tree: tree.clone() }
+        let tx = bptree.tx(true).map_err(|e| ErrDb::Err(e.to_string()))?;
+        tx.get_or_create_bucket(BPTREE_BUCKET_NAME).map_err(|e| ErrDb::Err(e.to_string()))?;
+        tx.commit().map_err(|e| ErrDb::Err(e.to_string()))?;
+        Ok(Self { tree: bptree })
     }
+
+    pub fn close(&self) {}
 }
 
 impl Indexer for BPlusTree {
@@ -154,7 +153,7 @@ mod tests {
     fn test_bptree_put() {
         let path = PathBuf::from("/tmp/bptree-put");
         fs::create_dir_all(path.clone()).unwrap();
-        let bpt = BPlusTree::new(path.clone());
+        let bpt = BPlusTree::new(path.clone()).expect("");
 
         let res1 = bpt.put(
             b"ccbde".to_vec(),
@@ -213,7 +212,7 @@ mod tests {
     fn test_bptree_get() {
         let path = PathBuf::from("/tmp/bptree-get");
         fs::create_dir_all(path.clone()).unwrap();
-        let bpt = BPlusTree::new(path.clone());
+        let bpt = BPlusTree::new(path.clone()).expect("");
 
         let v1 = bpt.get(b"not exist".to_vec());
         assert!(v1.is_none());
@@ -247,7 +246,7 @@ mod tests {
     fn test_bptree_delete() {
         let path = PathBuf::from("/tmp/bptree-delete");
         fs::create_dir_all(path.clone()).unwrap();
-        let bpt = BPlusTree::new(path.clone());
+        let bpt = BPlusTree::new(path.clone()).expect("");
 
         let r1 = bpt.delete(b"not exist".to_vec());
         assert!(r1.is_none());
@@ -276,7 +275,7 @@ mod tests {
     fn test_bptree_list_keys() {
         let path = PathBuf::from("/tmp/bptree-list-keys");
         fs::create_dir_all(path.clone()).unwrap();
-        let bpt = BPlusTree::new(path.clone());
+        let bpt = BPlusTree::new(path.clone()).expect("");
 
         let keys1 = bpt.list_keys();
         assert_eq!(keys1.ok().unwrap().len(), 0);
@@ -324,7 +323,7 @@ mod tests {
     fn test_bptree_itreator() {
         let path = PathBuf::from("/tmp/bptree-iterator");
         fs::create_dir_all(path.clone()).unwrap();
-        let bpt = BPlusTree::new(path.clone());
+        let bpt = BPlusTree::new(path.clone()).expect("");
 
         bpt.put(
             b"ccbde".to_vec(),
