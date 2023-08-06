@@ -56,6 +56,22 @@ impl Display for ErrDb {
 
 impl std::error::Error for ErrDb {}
 
+impl PartialEq for ErrDb {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (ErrDb::None, ErrDb::None) => true,
+            (ErrDb::NotFindKey, ErrDb::NotFindKey) => true,
+            (ErrDb::Err(s), ErrDb::Err(s2)) => s.eq(s2),
+            (ErrDb::InvalidLogRecordCrc, ErrDb::InvalidLogRecordCrc) => true,
+            (ErrDb::IoErr(e1), ErrDb::IoErr(e2)) => {
+                (e1.kind() == e2.kind()) && (e1.to_string() == e2.to_string())
+            }
+            (ErrDb::ParseIntError(s1), ErrDb::ParseIntError(e2)) => s1.eq(e2),
+            _ => false
+        }
+    }
+}
+
 impl From<io::Error> for ErrDb {
     fn from(e: io::Error) -> Self {
         ErrDb::IoErr(e)
