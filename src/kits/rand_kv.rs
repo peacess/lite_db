@@ -4,13 +4,13 @@ use crate::db::{Key, Value};
 
 #[allow(dead_code)]
 pub fn get_test_key(i: usize) -> Key {
-    Bytes::from(std::format!("bitcask-rs-key-{:09}", i))
+    Bytes::from(std::format!("lite-db-key--{:09}", i))
 }
 
 #[allow(dead_code)]
 pub fn get_test_value(i: usize) -> Value {
     Bytes::from(std::format!(
-        "bitcask-rs-value-value-value-value-value-value-value-value-value-{:09}",
+        "lite-db-value--{:09}",
         i
     ))
 }

@@ -22,7 +22,7 @@ impl BPlusTree {
         Ok(Self { tree: bptree })
     }
 
-    pub fn close(&self) {}
+    // pub fn close(&self) {}
 }
 
 impl Indexer for BPlusTree {

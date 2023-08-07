@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 use std::fs;
-use std::io::IsTerminal;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -9,14 +8,14 @@ use bytes::Bytes;
 use fs2::FileExt;
 use parking_lot::{Mutex, RwLock};
 
-use crate::db::{FileDb, LogDb, WriteBatchOptions};
+use crate::db::{FileDb, IndexType, LogDb, MERGE_FINISHED_FILE_NAME, SEQ_NO_FILE_NAME, TransactionLogDb, WriteBatchOptions};
 use crate::db::{
     Adder, Closer, Config, DATA_FILE_NAME_SUFFIX, Db, Editor, ErrDb, Getter, Indexer, IoType, Key, Remover, ResultDb, Value,
 };
 use crate::db::{LogDbPos, LogDbType};
 use crate::db::IndexType::BTree;
 use crate::index::new_indexer;
-use crate::lite::batch::{log_db_key_with_seq, NON_TRANSACTION_SEQ_NO, WriteBatch};
+use crate::lite::batch::{log_db_key_with_seq, NON_TRANSACTION_SEQ_NO, parse_log_db_key, WriteBatch};
 use crate::lite::Table;
 
 pub(crate) const FILE_LOCK_NAME: &str = "___lite_db_file_lock_name___";
@@ -28,6 +27,7 @@ pub struct LiteDb {
     pub(crate) active_file: RwLock<FileDb>,
     pub(crate) older_files: RwLock<HashMap<u32, FileDb>>,
     pub(crate) index: Box<dyn Indexer>,
+    file_ids: Vec<u32>,
     pub(crate) batch_commit_lock: Mutex<()>,
     // 事务序列号，全局递增
     pub(crate) seq_no: AtomicUsize,
@@ -84,18 +84,16 @@ impl LiteDb {
         }
 
         let mut data_files = load_data_files(path_db.clone(), false)?;
-        {
-            let mut file_ids = Vec::new();
-            for v in data_files.iter() {
-                file_ids.push(v.get_file_id());
-            }
+
+        let mut file_ids = Vec::new();
+        for v in data_files.iter() {
+            file_ids.push(v.get_file_id());
         }
 
         let active_file = match data_files.pop() {
             Some(v) => v,
             None => FileDb::new(path_db.clone(), INITIAL_FILE_ID, IoType::StdIo)?,
         };
-
         let older_files = {
             if data_files.len() > 0 {
                 // 将旧的数据文件放到后面，新的数据文件在第一个位置
@@ -106,11 +104,12 @@ impl LiteDb {
         };
 
         let index = new_indexer(config.index_type.clone(), config.path_db.clone())?;
-        Ok(LiteDb {
+        let mut db = LiteDb {
             config,
             active_file: RwLock::new(active_file),
             older_files: RwLock::new(older_files),
             index,
+            file_ids,
             batch_commit_lock: Mutex::new(()),
             seq_no: AtomicUsize::new(1),
             merging_lock: Mutex::new(()),
@@ -119,11 +118,62 @@ impl LiteDb {
             lock_file,
             bytes_write: AtomicUsize::new(0),
             reclaim_size: AtomicUsize::new(0),
-        })
+        };
+        // B+ 树则不需要从数据文件中加载索引
+        if db.config.index_type != IndexType::BPlusTree {
+            // 从 hint 文件中加载索引
+            db.load_index_from_hint_file()?;
+
+            // 从数据文件中加载索引
+            let current_seq_no = db.load_index_from_data_files()?;
+
+            // 更新当前事务序列号
+            if current_seq_no > 0 {
+                db.seq_no.store(current_seq_no + 1, Ordering::SeqCst);
+            }
+
+            // 重置 IO 类型
+            if db.config.mmap_at_startup {
+                db.reset_io_type();
+            }
+        }
+
+        if db.config.index_type == IndexType::BPlusTree {
+            // 加载事务序列号
+            let (exists, seq_no) = db.load_seq_no();
+            if exists {
+                db.seq_no.store(seq_no, Ordering::SeqCst);
+                db.seq_file_exists = exists;
+            }
+
+            let active_file = db.active_file.write();
+            active_file.set_write_off(active_file.file_size());
+        }
+        Ok(db)
     }
 
     pub fn open_table(&self) -> ResultDb<Table> {
         todo!()
+    }
+
+    fn get_value_by_pos(&self, log_db_pos: &LogDbPos) -> ResultDb<Bytes> {
+        let active_file = self.active_file.read();
+        let log_db = {
+            if active_file.get_file_id() == log_db_pos.file_id {
+                active_file.read_log_db(log_db_pos.offset)?.log_db
+            } else {
+                match self.older_files.read().get(&log_db_pos.file_id) {
+                    None => return Err(ErrDb::new_io_file_not_find("")),
+                    Some(data_file) => data_file.read_log_db(log_db_pos.offset)?.log_db,
+                }
+            }
+        };
+
+        if log_db.rec_type == LogDbType::DELETED {
+            return Err(ErrDb::NotFindKey);
+        }
+
+        Ok(log_db.value.into())
     }
 
     pub(crate) fn append_log_db(&self, log_db: &mut LogDb) -> ResultDb<LogDbPos> {
@@ -176,25 +226,116 @@ impl LiteDb {
         })
     }
 
-    fn get_value_by_pos(&self, log_db_pos: &LogDbPos) -> ResultDb<Bytes> {
-        let active_file = self.active_file.read();
-        let log_db = {
-            if active_file.get_file_id() == log_db_pos.file_id {
-                active_file.read_log_db(log_db_pos.offset)?.log_db
-            } else {
-                match self.older_files.read().get(&log_db_pos.file_id) {
-                    None => return Err(ErrDb::new_io_file_not_find("")),
-                    Some(data_file) => data_file.read_log_db(log_db_pos.offset)?.log_db,
-                }
-            }
-        };
+    /// 从数据文件中加载内存索引
+    /// 遍历数据文件中的内容，并依次处理其中的记录
+    fn load_index_from_data_files(&self) -> ResultDb<usize> {
+        let mut current_seq_no = NON_TRANSACTION_SEQ_NO;
 
-        if log_db.rec_type == LogDbType::DELETED {
-            return Err(ErrDb::NotFindKey);
+        // 数据文件为空，直接返回
+        if self.file_ids.is_empty() {
+            return Ok(current_seq_no);
         }
 
-        Ok(log_db.value.into())
+        // 拿到最近未参与 merge 的文件 id
+        let mut has_merge = false;
+        let mut non_merge_fid = 0;
+        let merge_fin_file = self.config.path_db.join(MERGE_FINISHED_FILE_NAME);
+        if merge_fin_file.is_file() {
+            let merge_fin_file = FileDb::new_merge_fin_file(self.config.path_db.clone())?;
+            let merge_fin_record = merge_fin_file.read_log_db(0)?;
+            let v = String::from_utf8(merge_fin_record.log_db.value).unwrap();
+
+            non_merge_fid = v.parse::<u32>().unwrap();
+            has_merge = true;
+        }
+
+        // 暂存事务相关的数据
+        let mut transaction_log_dbs = HashMap::new();
+
+        let active_file = self.active_file.read();
+        let older_files = self.older_files.read();
+
+        // 遍历每个文件 id，取出对应的数据文件，并加载其中的数据
+        for (i, file_id) in self.file_ids.iter().enumerate() {
+            // 如果比最近未参与 merge 的文件 id 更小，则已经从 hint 文件中加载索引了
+            if has_merge && *file_id < non_merge_fid {
+                continue;
+            }
+
+            let mut offset = 0;
+            loop {
+                let log_record_res = match *file_id == active_file.get_file_id() {
+                    true => active_file.read_log_db(offset),
+                    false => {
+                        let data_file = older_files.get(file_id).unwrap();
+                        data_file.read_log_db(offset)
+                    }
+                };
+
+                let (mut log_db, size) = match log_record_res {
+                    Ok(result) => (result.log_db, result.size),
+                    Err(e) => {
+                        if e == ErrDb::new_io_eof("") {
+                            break;
+                        }
+                        return Err(e);
+                    }
+                };
+
+                // 构建内存索引
+                let log_db_pos = LogDbPos {
+                    file_id: *file_id,
+                    offset,
+                    size: size as u32,
+                };
+
+                // 解析 key，拿到实际的 key 和 seq no
+                let (real_key, seq_no) = parse_log_db_key(log_db.key.clone());
+                // 非事务提交的情况，直接更新内存索引
+                if seq_no == NON_TRANSACTION_SEQ_NO {
+                    self.update_index(real_key, log_db.rec_type, log_db_pos);
+                } else {
+                    // 事务有提交的标识，更新内存索引
+                    if log_db.rec_type == LogDbType::TXNFINISHED {
+                        let records: &Vec<TransactionLogDb> =
+                            transaction_log_dbs.get(&seq_no).unwrap();
+                        for txn_record in records.iter() {
+                            self.update_index(
+                                txn_record.log_db.key.clone(),
+                                txn_record.log_db.rec_type,
+                                txn_record.pos,
+                            );
+                        }
+                        transaction_log_dbs.remove(&seq_no);
+                    } else {
+                        log_db.key = real_key;
+                        transaction_log_dbs
+                            .entry(seq_no)
+                            .or_insert(Vec::new())
+                            .push(TransactionLogDb {
+                                log_db,
+                                pos: log_db_pos,
+                            });
+                    }
+                }
+
+                // 更新当前事务序列号
+                if seq_no > current_seq_no {
+                    current_seq_no = seq_no;
+                }
+
+                // 递增 offset，下一次读取的时候从新的位置开始
+                offset += size as u64;
+            }
+
+            // 设置活跃文件的 offset
+            if i == self.file_ids.len() - 1 {
+                active_file.set_write_off(offset);
+            }
+        }
+        Ok(current_seq_no)
     }
+
 
     //batch
     pub fn new_write_batch(&self, options: WriteBatchOptions) -> ResultDb<WriteBatch> {
@@ -206,6 +347,52 @@ impl LiteDb {
             db: self,
             options,
         })
+    }
+
+    fn update_index(&self, key: Vec<u8>, rec_type: LogDbType, pos: LogDbPos) {
+        if rec_type == LogDbType::NORMAL {
+            if let Some(old_pos) = self.index.put(key.clone(), pos) {
+                self.reclaim_size
+                    .fetch_add(old_pos.size as usize, Ordering::SeqCst);
+            }
+        }
+        if rec_type == LogDbType::DELETED {
+            let mut size = pos.size;
+            if let Some(old_pos) = self.index.delete(key) {
+                size += old_pos.size;
+            }
+            self.reclaim_size.fetch_add(size as usize, Ordering::SeqCst);
+        }
+    }
+
+    // B+树索引模式下加载事务序列号
+    fn load_seq_no(&self) -> (bool, usize) {
+        let file_name = self.config.path_db.join(SEQ_NO_FILE_NAME);
+        if !file_name.is_file() {
+            return (false, 0);
+        }
+
+        let seq_no_file = FileDb::new_seq_no_file(self.config.path_db.clone()).unwrap();
+        let log_db = match seq_no_file.read_log_db(0) {
+            Ok(res) => res.log_db,
+            Err(e) => panic!("failed to read seq no: {}", e),
+        };
+        let v = String::from_utf8(log_db.value).unwrap();
+        let seq_no = v.parse::<usize>().unwrap();
+
+        // 加载后删除掉，避免追加写入
+        fs::remove_file(file_name).unwrap();
+
+        (true, seq_no)
+    }
+
+    fn reset_io_type(&self) {
+        let mut active_file = self.active_file.write();
+        active_file.set_io_manager(self.config.path_db.clone(), IoType::StdIo);
+        let mut older_files = self.older_files.write();
+        for (_, file) in older_files.iter_mut() {
+            file.set_io_manager(self.config.path_db.clone(), IoType::StdIo);
+        }
     }
 }
 
@@ -399,8 +586,11 @@ mod tests {
     #[test]
     fn test_lite_db_put() {
         let mut config = Config::default();
-        config.path_db = PathBuf::from("/tmp/bitcask-rs-put");
+        config.path_db = PathBuf::from("/tmp/lite-db-put");
         config.file_size_db = 64 * 1024 * 1024;
+        //repeat run test
+        let _ = std::fs::remove_dir_all(config.path_db.clone());
+
         let lite_db = LiteDb::open(config.clone()).expect("failed to open engine");
 
         // 1.正常 Put 一条数据
@@ -452,7 +642,7 @@ mod tests {
     #[test]
     fn test_lite_db_get() {
         let mut confg = Config::default();
-        confg.path_db = PathBuf::from("/tmp/bitcask-rs-get");
+        confg.path_db = PathBuf::from("/tmp/lite-db-get");
         confg.file_size_db = 64 * 1024 * 1024;
         let lite_db = LiteDb::open(confg.clone()).expect("failed to open engine");
 
@@ -473,7 +663,6 @@ mod tests {
         let res5 = lite_db.add(&get_test_key(222), &Bytes::from("a new value"));
         assert!(res5.is_ok());
         let res6 = lite_db.get(&get_test_key(222));
-        let ttt = std::str::from_utf8(res6.as_ref().unwrap().as_ref()).unwrap();
         println!("{}", std::str::from_utf8(res6.as_ref().unwrap().as_ref()).unwrap());
         assert_eq!(Bytes::from("a new value"), res6.unwrap());
 
@@ -511,7 +700,7 @@ mod tests {
     #[test]
     fn test_lite_db_delete() {
         let mut config = Config::default();
-        config.path_db = PathBuf::from("/tmp/bitcask-rs-delete");
+        config.path_db = PathBuf::from("/tmp/lite-db-delete");
         config.file_size_db = 64 * 1024 * 1024;
         let lite_db = LiteDb::open(config.clone()).expect("failed to open engine");
 
@@ -557,7 +746,7 @@ mod tests {
     #[test]
     fn test_engine_close() {
         let mut config = Config::default();
-        config.path_db = PathBuf::from("/tmp/bitcask-rs-close");
+        config.path_db = PathBuf::from("/tmp/lite-db-close");
         config.file_size_db = 64 * 1024 * 1024;
         let lite_db = LiteDb::open(config.clone()).expect("failed to open engine");
 
@@ -574,7 +763,7 @@ mod tests {
     #[test]
     fn test_engine_sync() {
         let mut config = Config::default();
-        config.path_db = PathBuf::from("/tmp/bitcask-rs-sync");
+        config.path_db = PathBuf::from("/tmp/lite-db-sync");
         config.file_size_db = 64 * 1024 * 1024;
         let lite_db = LiteDb::open(config.clone()).expect("failed to open engine");
 
@@ -591,7 +780,7 @@ mod tests {
     #[test]
     fn test_engine_filelock() {
         let mut config = Config::default();
-        config.path_db = PathBuf::from("/tmp/bitcask-rs-flock");
+        config.path_db = PathBuf::from("/tmp/lite-db-flock");
         let lite_db = LiteDb::open(config.clone()).expect("failed to open engine");
 
         let lite_db2 = LiteDb::open(config.clone());
@@ -612,7 +801,7 @@ mod tests {
     #[test]
     fn test_engine_stat() {
         let mut config = Config::default();
-        config.path_db = PathBuf::from("/tmp/bitcask-rs-stat");
+        config.path_db = PathBuf::from("/tmp/lite-db-stat");
         let lite_db = LiteDb::open(config.clone()).expect("failed to open engine");
 
         for i in 0..=10000 {
@@ -638,7 +827,7 @@ mod tests {
     // #[test]
     // fn test_engine_backup() {
     //     let mut config = Config::default();
-    //     config.path_db = PathBuf::from("/tmp/bitcask-rs-backup");
+    //     config.path_db = PathBuf::from("/tmp/lite-db-backup");
     //     let lite_db = LiteDb::open(config.clone()).expect("failed to open engine");
     //
     //     for i in 0..=10000 {
@@ -646,7 +835,7 @@ mod tests {
     //         assert!(res.is_ok());
     //     }
     //
-    //     let backup_dir = PathBuf::from("/tmp/bitcask-rs-backup-test");
+    //     let backup_dir = PathBuf::from("/tmp/lite-db-backup-test");
     //     let bak_res = lite_db.backup(backup_dir.clone());
     //     assert!(bak_res.is_ok());
     //

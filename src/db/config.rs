@@ -5,6 +5,7 @@ use crate::db::ErrDb;
 #[derive(Clone, PartialEq, Debug)]
 pub enum IndexType {
     BTree,
+    BPlusTree,
 }
 
 pub struct WriteBatchOptions {
@@ -37,7 +38,7 @@ pub struct Config {
     pub sync_writes: bool,
     pub bytes_per_sync: usize,
     pub index_type: IndexType,
-    // merge ratio
+    pub mmap_at_startup: bool,
     pub merge_ratio: f32,
 }
 
@@ -68,6 +69,7 @@ impl Default for Config {
             sync_writes: false,
             bytes_per_sync: 0,
             index_type: IndexType::BTree,
+            mmap_at_startup: true,
             merge_ratio: 0.5,
         }
     }
