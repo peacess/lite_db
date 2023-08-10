@@ -8,7 +8,6 @@ use crate::db::{decode_log_db_pos, ErrDb, Indexer, IndexIterator, IteratorOption
 const BPTREE_INDEX_FILE_NAME: &str = "bptree-index";
 const BPTREE_BUCKET_NAME: &str = "bitcask-index";
 
-// B+树索引
 pub struct BPlusTree {
     tree: DB,
 }
@@ -31,13 +30,11 @@ impl Indexer for BPlusTree {
         let tx = self.tree.tx(true).expect("failed to begin tx");
         let bucket = tx.get_bucket(BPTREE_BUCKET_NAME).unwrap();
 
-        // 先获取到旧的值
         if let Some(kv) = bucket.get_kv(&key) {
             let pos = decode_log_db_pos(kv.value().to_vec());
             result = Some(pos);
         }
 
-        // put 新值
         bucket.put(key, pos.encode()).expect("failed to put value in bptree");
         tx.commit().unwrap();
 
@@ -98,7 +95,6 @@ impl Indexer for BPlusTree {
     }
 }
 
-/// B+ 树索引迭代器
 pub struct BPTreeIterator {
     items: Vec<(Vec<u8>, LogDbPos)>,
     // 存储 key+索引

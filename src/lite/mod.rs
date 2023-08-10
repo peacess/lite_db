@@ -1,7 +1,7 @@
-pub use lite_db::*;
+pub use lite::*;
 pub use table::*;
 
-mod lite_db;
+mod lite;
 mod table;
 mod batch;
 mod merge;

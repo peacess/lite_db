@@ -222,13 +222,11 @@ mod tests {
     fn test_btree_iterator_seek() {
         let bt = BTree::new();
 
-        // 没有数据的情况
         let mut iter1 = bt.iterator(IteratorOptions::default());
         iter1.seek("aa".as_bytes().to_vec());
         let res1 = iter1.next();
         assert!(res1.is_none());
 
-        // 有一条数据的情况
         bt.put(
             "ccde".as_bytes().to_vec(),
             LogDbPos {
@@ -247,7 +245,6 @@ mod tests {
         let res3 = iter3.next();
         assert!(res3.is_none());
 
-        // 有多条数据的情况
         bt.put(
             "bbed".as_bytes().to_vec(),
             LogDbPos {
@@ -291,7 +288,6 @@ mod tests {
         let res6 = iter6.next();
         assert!(res6.is_none());
 
-        // 反向迭代
         let mut iter_opts = IteratorOptions::default();
         iter_opts.reverse = true;
         let mut iter7 = bt.iterator(iter_opts);
@@ -307,7 +303,6 @@ mod tests {
         let mut iter1 = bt.iterator(IteratorOptions::default());
         assert!(iter1.next().is_none());
 
-        // 有一条数据的情况
         bt.put(
             "cadd".as_bytes().to_vec(),
             LogDbPos {
@@ -321,7 +316,6 @@ mod tests {
         let mut iter2 = bt.iterator(iter_opt1);
         assert!(iter2.next().is_some());
 
-        // 有多条数据的情况
         bt.put(
             "bbed".as_bytes().to_vec(),
             LogDbPos {
@@ -354,7 +348,6 @@ mod tests {
             assert!(item.0.len() > 0);
         }
 
-        // 有前缀的情况
         let mut iter_opt3 = IteratorOptions::default();
         iter_opt3.prefix = "bbed".as_bytes().to_vec();
         let mut iter4 = bt.iterator(iter_opt3);
