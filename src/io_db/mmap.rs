@@ -88,51 +88,66 @@ impl DbIo for MMapIo {
 mod tests {
     use std::fs;
 
+    use function_name::named;
+
     use crate::io_db::MMapIo;
+    use crate::kits;
 
     use super::*;
 
+    fn make_file_name(file: &str, name: &str) -> PathBuf {
+        let mut path_buf = PathBuf::from("temp");
+        path_buf = path_buf.join(kits::com_names::file_name(file, name, "data"));
+        if let Some(parent) = path_buf.parent() {
+            if !parent.exists() {
+                fs::create_dir_all(parent).expect("");
+            }
+        }
+        path_buf
+    }
+
+    #[named]
     #[test]
     fn test_mmap_read() {
-        let path = PathBuf::from("/tmp/mmap-test.data");
+        let path = make_file_name(file!(), function_name!());
         {
             let _ = fs::remove_file(path.clone());
         }
 
         // file is empty
         {
-            let mmap_io1 = MMapIo::new(path.clone());
-            assert!(mmap_io1.is_ok());
-            let mmap_io1 = mmap_io1.ok().unwrap();
-            let mut buf1 = [0u8; 10];
-            let read_io1 = mmap_io1.read(&mut buf1, 0);
+            let re = MMapIo::new(path.clone());
+            assert!(re.is_ok());
+            let mmap_io = re.ok().unwrap();
+            let mut buf = [0u8; 10];
+            let re2 = mmap_io.read(&mut buf, 0);
             let _err_eof = ErrDb::new_io_eof("");
-            assert!(matches!(read_io1, Err(_err_eof)));
+            assert!(matches!(re2, Err(_err_eof)));
         }
 
         // data
         {
-            let mmap_io2 = MMapIo::new(path.clone());
-            assert!(mmap_io2.is_ok());
-            let mmap_io2 = mmap_io2.ok().unwrap();
+            let re = MMapIo::new(path.clone());
+            assert!(re.is_ok());
+            let mmap_io = re.ok().unwrap();
 
             let mut buf1 = [0u8; 2];
             buf1[0] = 1;
             buf1[1] = 3;
-            let read_io2 = mmap_io2.read(&mut buf1, 2);
+            let re2 = mmap_io.read(&mut buf1, 2);
             let _err_eof = ErrDb::new_io_eof("");
-            assert!(matches!(read_io2, Err(_err_eof)));
+            assert!(matches!(re2, Err(_err_eof)));
 
-            let read_io2 = mmap_io2.write(&buf1);
-            assert!(matches!(read_io2, Ok(2)));
+            let re_write = mmap_io.write(&buf1);
+            assert!(matches!(re_write, Ok(2)));
 
             let mut buf2 = [0u8; 2];
-            let read_io2 = mmap_io2.read(&mut buf2, 0);
-            assert!(matches!(read_io2, Ok(2)));
+            let re_read = mmap_io.read(&mut buf2, 0);
+            assert!(matches!(re_read, Ok(2)));
             assert_eq!(buf1, buf2);
 
-            let remove_res = fs::remove_file(path.clone());
-            assert!(remove_res.is_ok());
+            let re_remove = fs::remove_file(path.clone());
+            assert!(re_remove.is_ok());
         }
     }
 }

@@ -374,7 +374,7 @@ impl LiteDb {
 
         let seq_no_file = FileDb::new_seq_no_file(self.config.path_db.clone()).unwrap();
         let log_db = match seq_no_file.read_log_db(0) {
-            Ok(res) => res.log_db,
+            Ok(re) => re.log_db,
             Err(e) => panic!("failed to read seq no: {}", e),
         };
         let v = String::from_utf8(log_db.value).unwrap();
@@ -588,19 +588,18 @@ mod tests {
 
     fn ready_config(file: &str, name: &str) -> Config {
         let mut config = Config::default();
-        config.path_db = PathBuf::from(kits::com_names::path_name(file, name));
+        config.path_db = PathBuf::from("temp").join(kits::com_names::path_name(file, name));
         config.file_size_db = 64u64 * 1024 * 1024;
         {//repeat run test
-            let _ = std::fs::remove_dir_all(config.path_db.clone());
+            let _ = fs::remove_dir_all(config.path_db.clone());
         }
         config
     }
 
-
     #[named]
     #[test]
     fn test_lite_db_put() {
-        let mut config = ready_config(file!(), function_name!());
+        let config = ready_config(file!(), function_name!());
         {
             let lite_db = LiteDb::open(config.clone()).expect("failed to open engine");
 
@@ -637,8 +636,8 @@ mod tests {
 
             // 5. write data till the make new data file
             for i in 0..=1000000 {
-                let res = lite_db.add(&get_test_key(i), &get_test_value(i));
-                assert!(res.is_ok());
+                let re = lite_db.add(&get_test_key(i), &get_test_value(i));
+                assert!(re.is_ok());
             }
         }
 
@@ -660,7 +659,7 @@ mod tests {
     #[named]
     #[test]
     fn test_lite_db_get() {
-        let mut config = ready_config(file!(), function_name!());
+        let config = ready_config(file!(), function_name!());
 
         {
             let lite_db = LiteDb::open(config.clone()).expect("failed to open engine");
@@ -729,44 +728,54 @@ mod tests {
     #[named]
     #[test]
     fn test_lite_db_delete() {
-        let mut config = ready_config(file!(), function_name!());
+        let config = ready_config(file!(), function_name!());
 
-        let lite_db = LiteDb::open(config.clone()).expect("failed to open engine");
+        {
+            let lite_db = LiteDb::open(config.clone()).expect("failed to open engine");
 
-        // 1.正常删除一个存在的 key
-        let re1 = lite_db.add(&get_test_key(111), &get_test_value(111));
-        assert!(re1.is_ok());
-        let re2 = lite_db.remove(&get_test_key(111));
-        assert!(re2.is_ok());
-        let re3 = lite_db.get(&get_test_key(111));
-        assert!(matches!(re3, Err(ErrDb::NotFindKey)));
+            // 1.remove key
+            {
+                let re1 = lite_db.add(&get_test_key(111), &get_test_value(111));
+                assert!(re1.is_ok());
+                let re2 = lite_db.remove(&get_test_key(111));
+                assert_eq!(re2.unwrap(), Some(get_test_value(111)));
+                let re3 = lite_db.get(&get_test_key(111));
+                assert!(matches!(re3, Err(ErrDb::NotFindKey)));
+            }
 
-        // 2.删除一个不存在的 key
-        let re4 = lite_db.remove(&Bytes::from("not-existed-key"));
-        assert!(re4.is_ok());
+            // 2.remove key that do not exist
+            {
+                let re = lite_db.remove(&Bytes::from("not-existed-key"));
+                assert!(re.is_ok());
+            }
 
-        // 3.删除一个空的 key
-        let re5 = lite_db.remove(&Bytes::new());
-        assert!(matches!(re5, Err(ErrDb::InvalidParameter)));
+            // 3. remove a empty key
+            {
+                let re = lite_db.remove(&Bytes::new());
+                assert!(matches!(re, Err(ErrDb::InvalidParameter)));
+            }
 
-        // 4.值被删除之后重新 Put
-        let re6 = lite_db.add(&get_test_key(222), &get_test_value(222));
-        assert!(re6.is_ok());
-        let res7 = lite_db.remove(&get_test_key(222));
-        assert!(res7.is_ok());
-        let res8 = lite_db.add(&get_test_key(222), &Bytes::from("a new value"));
-        assert!(res8.is_ok());
-        let res9 = lite_db.get(&get_test_key(222));
-        assert_eq!(Bytes::from("a new value"), res9.unwrap());
+            // 4.add after remove
+            {
+                let re1 = lite_db.add(&get_test_key(222), &get_test_value(222));
+                assert!(re1.is_ok());
+                let re2 = lite_db.remove(&get_test_key(222));
+                assert!(re2.is_ok());
+                let re3 = lite_db.add(&get_test_key(222), &Bytes::from("a new value"));
+                assert!(re3.is_ok());
+                let re4 = lite_db.get(&get_test_key(222));
+                assert_eq!(Bytes::from("a new value"), re4.unwrap());
+            }
+        }
 
-        // 5.重启后再 Put 数据
-        std::mem::drop(lite_db);
-
-        let lite_db2 = LiteDb::open(config.clone()).expect("failed to open engine");
-        let res10 = lite_db2.get(&get_test_key(111));
-        assert!(matches!(res10, Err(ErrDb::NotFindKey)));
-        let res11 = lite_db2.get(&get_test_key(222));
-        assert_eq!(Bytes::from("a new value"), res11.unwrap());
+        // 5.reopen db
+        {
+            let lite_db = LiteDb::open(config.clone()).expect("failed to open engine");
+            let re1 = lite_db.get(&get_test_key(111));
+            assert!(matches!(re1, Err(ErrDb::NotFindKey)));
+            let re2 = lite_db.get(&get_test_key(222));
+            assert_eq!(Bytes::from("a new value"), re2.unwrap());
+        }
 
         // remove the test file
         fs::remove_dir_all(config.path_db.clone()).expect("failed to remove path");
@@ -775,15 +784,15 @@ mod tests {
     #[named]
     #[test]
     fn test_lite_db_close() {
-        let mut config = ready_config(file!(), function_name!());
+        let config = ready_config(file!(), function_name!());
 
         let lite_db = LiteDb::open(config.clone()).expect("failed to open engine");
 
-        let res1 = lite_db.add(&get_test_key(222), &get_test_value(222));
-        assert!(res1.is_ok());
+        let re1 = lite_db.add(&get_test_key(222), &get_test_value(222));
+        assert!(re1.is_ok());
 
-        let close_res = lite_db.close();
-        assert!(close_res.is_ok());
+        let close_re = lite_db.close();
+        assert!(close_re.is_ok());
 
         // remove the test file
         fs::remove_dir_all(config.path_db.clone()).expect("failed to remove path");
@@ -792,15 +801,14 @@ mod tests {
     #[named]
     #[test]
     fn test_lite_db_sync() {
-        let mut config = ready_config(file!(), function_name!());
+        let config = ready_config(file!(), function_name!());
 
         let lite_db = LiteDb::open(config.clone()).expect("failed to open engine");
+        let re1 = lite_db.add(&get_test_key(222), &get_test_value(222));
+        assert!(re1.is_ok());
 
-        let res1 = lite_db.add(&get_test_key(222), &get_test_value(222));
-        assert!(res1.is_ok());
-
-        let close_res = lite_db.sync();
-        assert!(close_res.is_ok());
+        let close_re = lite_db.sync();
+        assert!(close_re.is_ok());
 
         // remove the test file
         fs::remove_dir_all(config.path_db.clone()).expect("failed to remove path");
@@ -808,8 +816,8 @@ mod tests {
 
     #[named]
     #[test]
-    fn test_lite_db_filelock() {
-        let mut config = ready_config(file!(), function_name!());
+    fn test_lite_db_file_lock() {
+        let config = ready_config(file!(), function_name!());
 
         let lite_db = LiteDb::open(config.clone()).expect("failed to open engine");
 
@@ -831,21 +839,21 @@ mod tests {
     #[named]
     #[test]
     fn test_lite_db_stat() {
-        let mut config = ready_config(file!(), function_name!());
+        let config = ready_config(file!(), function_name!());
 
         let lite_db = LiteDb::open(config.clone()).expect("failed to open engine");
 
         for i in 0..=10000 {
-            let res = lite_db.add(&get_test_key(i), &get_test_value(i));
-            assert!(res.is_ok());
+            let re = lite_db.add(&get_test_key(i), &get_test_value(i));
+            assert!(re.is_ok());
         }
         for i in 0..=1000 {
-            let res = lite_db.add(&get_test_key(i), &get_test_value(i));
-            assert!(res.is_ok());
+            let re = lite_db.add(&get_test_key(i), &get_test_value(i));
+            assert!(re.is_ok());
         }
         for i in 2000..=5000 {
-            let res = lite_db.remove(&get_test_key(i));
-            assert!(res.is_ok());
+            let re = lite_db.remove(&get_test_key(i));
+            assert!(re.is_ok());
         }
 
         // let stat = lite_db.stat().unwrap();
@@ -862,8 +870,8 @@ mod tests {
     //     let lite_db = LiteDb::open(config.clone()).expect("failed to open engine");
     //
     //     for i in 0..=10000 {
-    //         let res = lite_db.add(&get_test_key(i), &get_test_value(i));
-    //         assert!(res.is_ok());
+    //         let re = lite_db.add(&get_test_key(i), &get_test_value(i));
+    //         assert!(re.is_ok());
     //     }
     //
     //     let backup_dir = PathBuf::from("/tmp/lite-db-backup-test");
