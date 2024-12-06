@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use bytes::Bytes;
 use parking_lot::RwLock;
 
-use crate::db::{Indexer, IndexIterator, IteratorOptions, LogDbPos, ResultDb};
+use crate::db::{IndexIterator, Indexer, IteratorOptions, LogDbPos, ResultDb};
 
 // BTree 索引，主要封装了标准库中的 BTreeMap 结构
 pub struct BTree {
@@ -53,11 +53,7 @@ impl Indexer for BTree {
         if options.reverse {
             items.reverse();
         }
-        Box::new(BTreeIterator {
-            items,
-            curr_index: 0,
-            options,
-        })
+        Box::new(BTreeIterator { items, curr_index: 0, options })
     }
 }
 
@@ -67,7 +63,7 @@ pub struct BTreeIterator {
     // 存储 key+索引
     curr_index: usize,
     // 当前遍历的位置下标
-    options: IteratorOptions,            // 配置项
+    options: IteratorOptions, // 配置项
 }
 
 impl IndexIterator for BTreeIterator {
@@ -76,13 +72,10 @@ impl IndexIterator for BTreeIterator {
     }
 
     fn seek(&mut self, key: Vec<u8>) {
-        self.curr_index = match self.items.binary_search_by(|(x, _)| {
-            if self.options.reverse {
-                x.cmp(&key).reverse()
-            } else {
-                x.cmp(&key)
-            }
-        }) {
+        self.curr_index = match self
+            .items
+            .binary_search_by(|(x, _)| if self.options.reverse { x.cmp(&key).reverse() } else { x.cmp(&key) })
+        {
             Ok(equal_val) => equal_val,
             Err(insert_val) => insert_val,
         };

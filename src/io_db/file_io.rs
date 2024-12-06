@@ -18,13 +18,7 @@ pub struct FileIo {
 
 impl FileIo {
     pub fn new(file_name: PathBuf) -> ResultDb<Self> {
-        match OpenOptions::new()
-            .create(true)
-            .read(true)
-            .write(true)
-            .append(true)
-            .open(file_name)
-        {
+        match OpenOptions::new().create(true).read(true).write(true).append(true).open(file_name) {
             Ok(file) => {
                 return Ok(FileIo {
                     fd: Arc::new(RwLock::new(file)),

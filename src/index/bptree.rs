@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use bytes::Bytes;
 use jammdb::DB;
 
-use crate::db::{decode_log_db_pos, ErrDb, Indexer, IndexIterator, IteratorOptions, LogDbPos, ResultDb};
+use crate::db::{decode_log_db_pos, ErrDb, IndexIterator, Indexer, IteratorOptions, LogDbPos, ResultDb};
 
 const BPTREE_INDEX_FILE_NAME: &str = "bptree-index";
 const BPTREE_BUCKET_NAME: &str = "bitcask-index";
@@ -87,11 +87,7 @@ impl Indexer for BPlusTree {
             items.reverse();
         }
 
-        Box::new(BPTreeIterator {
-            items,
-            curr_index: 0,
-            options,
-        })
+        Box::new(BPTreeIterator { items, curr_index: 0, options })
     }
 }
 
@@ -109,13 +105,10 @@ impl IndexIterator for BPTreeIterator {
     }
 
     fn seek(&mut self, key: Vec<u8>) {
-        self.curr_index = match self.items.binary_search_by(|(x, _)| {
-            if self.options.reverse {
-                x.cmp(&key).reverse()
-            } else {
-                x.cmp(&key)
-            }
-        }) {
+        self.curr_index = match self
+            .items
+            .binary_search_by(|(x, _)| if self.options.reverse { x.cmp(&key).reverse() } else { x.cmp(&key) })
+        {
             Ok(equal_val) => equal_val,
             Err(insert_val) => insert_val,
         };

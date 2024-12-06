@@ -1,4 +1,4 @@
-use crate::db::{decode_log_db_pos, ErrDb, FileDb, HINT_FILE_NAME, ResultDb};
+use crate::db::{decode_log_db_pos, ErrDb, FileDb, ResultDb, HINT_FILE_NAME};
 use crate::lite::LiteDb;
 
 impl LiteDb {

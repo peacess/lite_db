@@ -22,9 +22,10 @@ args = ["build", "--target=x86_64-pc-windows-gnu"]
 #args = ["build","--target=wasm32-unknown-unknown"]
 
 [tasks.format]
+condition = { channels = ["nightly"] }
 install_crate = "rustfmt"
 command = "cargo"
-args = ["fmt", "--", "--emit=files"]
+args = ["+nightly","fmt"]
 
 [tasks.all]
 dependencies = [

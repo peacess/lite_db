@@ -5,7 +5,7 @@ use bytes::{Buf, BytesMut};
 use parking_lot::RwLock;
 use prost::{decode_length_delimiter, length_delimiter_len};
 
-use crate::db::{LogDb, LogDbPos, LogDbType, max_log_db_header_size, ReadLogDb};
+use crate::db::{max_log_db_header_size, LogDb, LogDbPos, LogDbType, ReadLogDb};
 use crate::db::{ErrDb, IoType, ResultDb};
 use crate::io_db;
 use crate::io_db::new_dbio;

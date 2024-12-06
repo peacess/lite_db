@@ -9,10 +9,7 @@ pub fn get_test_key(i: usize) -> Key {
 
 #[allow(dead_code)]
 pub fn get_test_value(i: usize) -> Value {
-    Bytes::from(std::format!(
-        "lite-db-value--{:09}",
-        i
-    ))
+    Bytes::from(std::format!("lite-db-value--{:09}", i))
 }
 
 #[test]

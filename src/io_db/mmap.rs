@@ -18,10 +18,7 @@ impl MMapIo {
         match OpenOptions::new().create(true).read(true).write(true).open(file_name) {
             Ok(file) => {
                 let map = unsafe { MmapMut::map_mut(&file)? };
-                return Ok(MMapIo {
-                    map: RwLock::new(map),
-                    file,
-                });
+                return Ok(MMapIo { map: RwLock::new(map), file });
             }
             Err(e) => {
                 error!("{}", e);

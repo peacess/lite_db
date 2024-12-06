@@ -1,12 +1,12 @@
 # Basic
-hard_tabs = false
-max_width = 128
-attr_fn_like_width = 128
+max_width = 160
+attr_fn_like_width = 160
 #indent_style = "Block"
 
 # Imports
-reorder_imports = true
-#group_imports = "StdExternalCrate"
+merge_derives = false
+imports_granularity="Crate"
+group_imports = "StdExternalCrate"
 
 # Misc
 match_arm_leading_pipes = "Never"

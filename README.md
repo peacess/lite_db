@@ -9,3 +9,10 @@ lite fast kv db for mobile, client, wasm etc.
 
 table: a collection of kv
 get,add,remove
+
+# install
+```shell
+cargo install cargo-make
+cargo install cargo-edit
+```
+

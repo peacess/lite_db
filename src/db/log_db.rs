@@ -88,12 +88,7 @@ impl LogDb {
 
     // LogDb 编码后的长度
     fn encoded_length(&self) -> usize {
-        std::mem::size_of::<u8>()
-            + length_delimiter_len(self.key.len())
-            + length_delimiter_len(self.value.len())
-            + self.key.len()
-            + self.value.len()
-            + 4
+        std::mem::size_of::<u8>() + length_delimiter_len(self.key.len()) + length_delimiter_len(self.value.len()) + self.key.len() + self.value.len() + 4
     }
 }
 

@@ -1,21 +1,19 @@
 use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 
 use bytes::Bytes;
 use fs2::FileExt;
 use parking_lot::{Mutex, RwLock};
 
-use crate::db::{FileDb, IndexType, LogDb, MERGE_FINISHED_FILE_NAME, SEQ_NO_FILE_NAME, TransactionLogDb, WriteBatchOptions};
-use crate::db::{
-    Adder, Closer, Config, DATA_FILE_NAME_SUFFIX, Db, Editor, ErrDb, Getter, Indexer, IoType, Key, Remover, ResultDb, Value,
-};
-use crate::db::{LogDbPos, LogDbType};
 use crate::db::IndexType::BTree;
+use crate::db::{Adder, Closer, Config, Db, Editor, ErrDb, Getter, Indexer, IoType, Key, Remover, ResultDb, Value, DATA_FILE_NAME_SUFFIX};
+use crate::db::{FileDb, IndexType, LogDb, TransactionLogDb, WriteBatchOptions, MERGE_FINISHED_FILE_NAME, SEQ_NO_FILE_NAME};
+use crate::db::{LogDbPos, LogDbType};
 use crate::index::new_indexer;
-use crate::lite::batch::{log_db_key_with_seq, NON_TRANSACTION_SEQ_NO, parse_log_db_key, WriteBatch};
+use crate::lite::batch::{log_db_key_with_seq, parse_log_db_key, WriteBatch, NON_TRANSACTION_SEQ_NO};
 use crate::lite::Table;
 
 pub(crate) const FILE_LOCK_NAME: &str = "___lite_db_file_lock_name___";
@@ -57,12 +55,7 @@ impl LiteDb {
         }
         // check whether the file opened
         let lock_file = {
-            match fs::OpenOptions::new()
-                .read(true)
-                .write(true)
-                .create(true)
-                .open(path_db.join(FILE_LOCK_NAME))
-            {
+            match fs::OpenOptions::new().read(true).write(true).create(true).open(path_db.join(FILE_LOCK_NAME)) {
                 Ok(f) => {
                     if let Err(e) = f.try_lock_exclusive() {
                         log::error!("{}", e.to_string());
@@ -202,15 +195,10 @@ impl LiteDb {
         let write_off = active_file.get_write_off();
         active_file.write(&enc_log_db)?;
 
-        let previous = self
-            .bytes_write
-            .fetch_add(enc_log_db.len(), Ordering::SeqCst);
+        let previous = self.bytes_write.fetch_add(enc_log_db.len(), Ordering::SeqCst);
         // 根据配置项决定是否持久化
         let mut need_sync = self.config.sync_writes;
-        if !need_sync
-            && self.config.bytes_per_sync > 0
-            && previous + enc_log_db.len() >= self.config.bytes_per_sync
-        {
+        if !need_sync && self.config.bytes_per_sync > 0 && previous + enc_log_db.len() >= self.config.bytes_per_sync {
             need_sync = true;
         }
 
@@ -297,14 +285,9 @@ impl LiteDb {
                 } else {
                     // 事务有提交的标识，更新内存索引
                     if log_db.rec_type == LogDbType::TXNFINISHED {
-                        let records: &Vec<TransactionLogDb> =
-                            transaction_log_dbs.get(&seq_no).unwrap();
+                        let records: &Vec<TransactionLogDb> = transaction_log_dbs.get(&seq_no).unwrap();
                         for txn_record in records.iter() {
-                            self.update_index(
-                                txn_record.log_db.key.clone(),
-                                txn_record.log_db.rec_type,
-                                txn_record.pos,
-                            );
+                            self.update_index(txn_record.log_db.key.clone(), txn_record.log_db.rec_type, txn_record.pos);
                         }
                         transaction_log_dbs.remove(&seq_no);
                     } else {
@@ -312,10 +295,7 @@ impl LiteDb {
                         transaction_log_dbs
                             .entry(seq_no)
                             .or_insert(Vec::new())
-                            .push(TransactionLogDb {
-                                log_db,
-                                pos: log_db_pos,
-                            });
+                            .push(TransactionLogDb { log_db, pos: log_db_pos });
                     }
                 }
 
@@ -336,7 +316,6 @@ impl LiteDb {
         Ok(current_seq_no)
     }
 
-
     //batch
     pub fn new_write_batch(&self, options: WriteBatchOptions) -> ResultDb<WriteBatch> {
         if self.config.index_type == BTree && !self.seq_file_exists && !self.is_initial {
@@ -352,8 +331,7 @@ impl LiteDb {
     fn update_index(&self, key: Vec<u8>, rec_type: LogDbType, pos: LogDbPos) {
         if rec_type == LogDbType::NORMAL {
             if let Some(old_pos) = self.index.put(key.clone(), pos) {
-                self.reclaim_size
-                    .fetch_add(old_pos.size as usize, Ordering::SeqCst);
+                self.reclaim_size.fetch_add(old_pos.size as usize, Ordering::SeqCst);
             }
         }
         if rec_type == LogDbType::DELETED {
@@ -425,8 +403,7 @@ impl Adder for LiteDb {
         let log_db_pos = self.append_log_db(&mut log_db)?;
 
         if let Some(old_pos) = self.index.put(k.to_vec(), log_db_pos) {
-            self.reclaim_size
-                .fetch_add(old_pos.size as usize, Ordering::SeqCst);
+            self.reclaim_size.fetch_add(old_pos.size as usize, Ordering::SeqCst);
         }
 
         Ok(())
@@ -454,13 +431,11 @@ impl Remover for LiteDb {
         };
 
         let pos = self.append_log_db(&mut log_db)?;
-        self.reclaim_size
-            .fetch_add(pos.size as usize, Ordering::SeqCst);
+        self.reclaim_size.fetch_add(pos.size as usize, Ordering::SeqCst);
 
         // delete the key in indexes
         if let Some(old_pos) = self.index.delete(key.to_vec()) {
-            self.reclaim_size
-                .fetch_add(old_pos.size as usize, Ordering::SeqCst);
+            self.reclaim_size.fetch_add(old_pos.size as usize, Ordering::SeqCst);
         }
 
         Ok(Some(value))
@@ -483,13 +458,11 @@ impl Remover for LiteDb {
         };
 
         let pos = self.append_log_db(&mut log_db)?;
-        self.reclaim_size
-            .fetch_add(pos.size as usize, Ordering::SeqCst);
+        self.reclaim_size.fetch_add(pos.size as usize, Ordering::SeqCst);
 
         // delete the key in indexes
         if let Some(old_pos) = self.index.delete(key.to_vec()) {
-            self.reclaim_size
-                .fetch_add(old_pos.size as usize, Ordering::SeqCst);
+            self.reclaim_size.fetch_add(old_pos.size as usize, Ordering::SeqCst);
         }
 
         Ok(())
@@ -590,7 +563,8 @@ mod tests {
         let mut config = Config::default();
         config.path_db = PathBuf::from("temp").join(kits::com_names::path_name(file, name));
         config.file_size_db = 64u64 * 1024 * 1024;
-        {//repeat run test
+        {
+            //repeat run test
             let _ = fs::remove_dir_all(config.path_db.clone());
         }
         config
@@ -826,7 +800,7 @@ mod tests {
         assert!(matches!(lite_db2, Err(_eof)));
 
         let re2 = lite_db.close();
-        assert!(matches!(re2,Ok(())));
+        assert!(matches!(re2, Ok(())));
         // std::mem::drop(lite_db);
 
         let re3 = LiteDb::open(config.clone());

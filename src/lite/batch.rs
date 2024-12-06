@@ -1,6 +1,6 @@
 use std::{
     collections::HashMap,
-    sync::{Arc, atomic::Ordering},
+    sync::{atomic::Ordering, Arc},
 };
 
 use bytes::{BufMut, Bytes, BytesMut};
@@ -113,16 +113,12 @@ impl WriteBatch<'_> {
             if item.rec_type == LogDbType::NORMAL {
                 let log_db_pos = positions.get(&item.key).unwrap();
                 if let Some(old_pos) = self.db.index.put(item.key.clone(), *log_db_pos) {
-                    self.db
-                        .reclaim_size
-                        .fetch_add(old_pos.size as usize, Ordering::SeqCst);
+                    self.db.reclaim_size.fetch_add(old_pos.size as usize, Ordering::SeqCst);
                 }
             }
             if item.rec_type == LogDbType::DELETED {
                 if let Some(old_pos) = self.db.index.delete(item.key.clone()) {
-                    self.db
-                        .reclaim_size
-                        .fetch_add(old_pos.size as usize, Ordering::SeqCst);
+                    self.db.reclaim_size.fetch_add(old_pos.size as usize, Ordering::SeqCst);
                 }
             }
         }
@@ -166,19 +162,11 @@ mod tests {
         config.file_size_db = 64 * 1024 * 1024;
         let lite_db = LiteDb::open(config.clone()).expect("failed to open engine");
 
-        let wb = lite_db
-            .new_write_batch(WriteBatchOptions::default())
-            .expect("failed to create write batch");
+        let wb = lite_db.new_write_batch(WriteBatchOptions::default()).expect("failed to create write batch");
         // 写数据之后未提交
-        let put_res1 = wb.put(
-            kits::rand_kv::get_test_key(1),
-            kits::rand_kv::get_test_value(10),
-        );
+        let put_res1 = wb.put(kits::rand_kv::get_test_key(1), kits::rand_kv::get_test_value(10));
         assert!(put_res1.is_ok());
-        let put_res2 = wb.put(
-            kits::rand_kv::get_test_key(2),
-            kits::rand_kv::get_test_value(10),
-        );
+        let put_res2 = wb.put(kits::rand_kv::get_test_key(2), kits::rand_kv::get_test_value(10));
         assert!(put_res2.is_ok());
 
         let res1 = lite_db.get(&kits::rand_kv::get_test_key(1));
@@ -206,26 +194,15 @@ mod tests {
         config.file_size_db = 64 * 1024 * 1024;
         let engine = LiteDb::open(config.clone()).expect("failed to open engine");
 
-        let wb = engine
-            .new_write_batch(WriteBatchOptions::default())
-            .expect("failed to create write batch");
-        let put_res1 = wb.put(
-            kits::rand_kv::get_test_key(1),
-            kits::rand_kv::get_test_value(10),
-        );
+        let wb = engine.new_write_batch(WriteBatchOptions::default()).expect("failed to create write batch");
+        let put_res1 = wb.put(kits::rand_kv::get_test_key(1), kits::rand_kv::get_test_value(10));
         assert!(put_res1.is_ok());
-        let put_res2 = wb.put(
-            kits::rand_kv::get_test_key(2),
-            kits::rand_kv::get_test_value(10),
-        );
+        let put_res2 = wb.put(kits::rand_kv::get_test_key(2), kits::rand_kv::get_test_value(10));
         assert!(put_res2.is_ok());
         let commit_res1 = wb.commit();
         assert!(commit_res1.is_ok());
 
-        let put_res3 = wb.put(
-            kits::rand_kv::get_test_key(1),
-            kits::rand_kv::get_test_value(10),
-        );
+        let put_res3 = wb.put(kits::rand_kv::get_test_key(1), kits::rand_kv::get_test_value(10));
         assert!(put_res3.is_ok());
 
         let commit_res2 = wb.commit();
