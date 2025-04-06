@@ -17,7 +17,6 @@ pub trait Adder {
 pub trait Remover {
     /// if can not find Key，then return None
     fn remove(&self, key: &Key) -> ResultDb<Option<Value>>;
-    ///
     fn remove_fast(&self, key: &Key) -> ResultDb<()>;
 }
 

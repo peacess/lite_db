@@ -8,9 +8,8 @@ use std::{
 use log::error;
 use parking_lot::RwLock;
 
-use crate::db::{ErrDb, ResultDb};
-
 use super::DbIo;
+use crate::db::{ErrDb, ResultDb};
 
 pub struct FileIo {
     fd: Arc<RwLock<File>>,
@@ -18,15 +17,13 @@ pub struct FileIo {
 
 impl FileIo {
     pub fn new(file_name: PathBuf) -> ResultDb<Self> {
-        match OpenOptions::new().create(true).read(true).write(true).append(true).open(file_name) {
-            Ok(file) => {
-                return Ok(FileIo {
-                    fd: Arc::new(RwLock::new(file)),
-                });
-            }
+        match OpenOptions::new().create(true).read(true).append(true).open(file_name) {
+            Ok(file) => Ok(FileIo {
+                fd: Arc::new(RwLock::new(file)),
+            }),
             Err(e) => {
                 error!("{}", e);
-                return Err(ErrDb::IoErr(e));
+                Err(ErrDb::IoErr(e))
             }
         }
     }
@@ -38,12 +35,12 @@ impl DbIo for FileIo {
         use std::os::unix::fs::FileExt;
         let read = self.fd.read();
         match read.read_at(buf, offset) {
-            Ok(n) => return Ok(n),
+            Ok(n) => Ok(n),
             Err(e) => {
                 error!("{}", e);
-                return Err(ErrDb::IoErr(e));
+                Err(ErrDb::IoErr(e))
             }
-        };
+        }
     }
 
     #[cfg(windows)]
@@ -62,10 +59,10 @@ impl DbIo for FileIo {
     fn write(&self, buf: &[u8]) -> ResultDb<usize> {
         let mut write = self.fd.write();
         match write.write(buf) {
-            Ok(n) => return Ok(n),
+            Ok(n) => Ok(n),
             Err(e) => {
                 error!("{}", e);
-                return Err(ErrDb::IoErr(e));
+                Err(ErrDb::IoErr(e))
             }
         }
     }
@@ -88,13 +85,14 @@ impl DbIo for FileIo {
 
 #[cfg(test)]
 mod tests {
-    use std::fs;
-    use std::path::PathBuf;
+    use std::{fs, path::PathBuf};
 
     use function_name::named;
 
-    use crate::io_db::{DbIo, FileIo};
-    use crate::kits;
+    use crate::{
+        io_db::{DbIo, FileIo},
+        kits,
+    };
 
     fn make_file_name(file: &str, name: &str) -> PathBuf {
         let mut path_buf = PathBuf::from("temp");

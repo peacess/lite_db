@@ -1,14 +1,14 @@
-use std::path::PathBuf;
-use std::sync::Arc;
+use std::{path::PathBuf, sync::Arc};
 
 use bytes::{Buf, BytesMut};
 use parking_lot::RwLock;
 use prost::{decode_length_delimiter, length_delimiter_len};
 
-use crate::db::{max_log_db_header_size, LogDb, LogDbPos, LogDbType, ReadLogDb};
-use crate::db::{ErrDb, IoType, ResultDb};
-use crate::io_db;
-use crate::io_db::new_dbio;
+use crate::{
+    db::{max_log_db_header_size, ErrDb, IoType, LogDb, LogDbPos, LogDbType, ReadLogDb, ResultDb},
+    io_db,
+    io_db::new_dbio,
+};
 
 pub struct FileDb {
     file_id: Arc<RwLock<u32>>,
@@ -129,7 +129,7 @@ impl FileDb {
 
         // 构造结果并返回
         Ok(ReadLogDb {
-            log_db: log_db,
+            log_db,
             size: actual_header_size + key_size + value_size + 4,
         })
     }

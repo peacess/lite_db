@@ -4,9 +4,8 @@ use log::error;
 use memmap2::{MmapMut, RemapOptions};
 use parking_lot::RwLock;
 
-use crate::db::{ErrDb, ResultDb};
-
 use super::DbIo;
+use crate::db::{ErrDb, ResultDb};
 
 pub struct MMapIo {
     map: RwLock<MmapMut>,
@@ -15,14 +14,14 @@ pub struct MMapIo {
 
 impl MMapIo {
     pub fn new(file_name: PathBuf) -> ResultDb<Self> {
-        match OpenOptions::new().create(true).read(true).write(true).open(file_name) {
+        match OpenOptions::new().create(true).truncate(true).read(true).write(true).open(file_name) {
             Ok(file) => {
                 let map = unsafe { MmapMut::map_mut(&file)? };
-                return Ok(MMapIo { map: RwLock::new(map), file });
+                Ok(MMapIo { map: RwLock::new(map), file })
             }
             Err(e) => {
                 error!("{}", e);
-                return Err(ErrDb::IoErr(e));
+                Err(ErrDb::IoErr(e))
             }
         }
     }
@@ -51,7 +50,7 @@ impl DbIo for MMapIo {
             w.remap(old_len + _buf.len(), RemapOptions::new().may_move(true))?;
         };
 
-        (&mut w[old_len..]).copy_from_slice(_buf);
+        w[old_len..].copy_from_slice(_buf);
         Ok(_buf.len())
     }
     #[cfg(windows)]
@@ -87,10 +86,8 @@ mod tests {
 
     use function_name::named;
 
-    use crate::io_db::MMapIo;
-    use crate::kits;
-
     use super::*;
+    use crate::{io_db::MMapIo, kits};
 
     fn make_file_name(file: &str, name: &str) -> PathBuf {
         let mut path_buf = PathBuf::from("temp");

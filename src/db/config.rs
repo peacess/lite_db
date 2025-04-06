@@ -46,17 +46,17 @@ impl Config {
     pub(crate) fn check(&self) -> Option<ErrDb> {
         let mut err = ErrDb::None;
         let dir_path = self.path_db.to_str();
-        if dir_path.is_none() || dir_path.unwrap().len() == 0 {
+        if dir_path.is_none() || dir_path.unwrap().is_empty() {
             err = ErrDb::Err("the db config path is none".to_owned());
-        } else if self.file_size_db <= 0 {
+        } else if self.file_size_db == 0 {
             err = ErrDb::Err("the db config file size  <= 0".to_owned());
-        } else if self.merge_ratio < 0 as f32 || self.merge_ratio > 1 as f32 {
+        } else if self.merge_ratio < 0.0 || self.merge_ratio > 1.0 {
             err = ErrDb::Err("the db config merge ratio < 0 or > 1".to_owned());
         }
         if err.is_not_none() {
             Some(err)
         } else {
-            return None;
+            None
         }
     }
 }

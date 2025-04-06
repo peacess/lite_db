@@ -7,8 +7,10 @@ use bytes::{BufMut, Bytes, BytesMut};
 use parking_lot::Mutex;
 use prost::{decode_length_delimiter, encode_length_delimiter};
 
-use crate::db::{Db, ErrDb, LogDb, LogDbType, ResultDb, WriteBatchOptions};
-use crate::lite::LiteDb;
+use crate::{
+    db::{Db, ErrDb, LogDb, LogDbType, ResultDb, WriteBatchOptions},
+    lite::LiteDb,
+};
 
 const TXN_FIN_KEY: &[u8] = "txn-fin".as_bytes();
 pub(crate) const NON_TRANSACTION_SEQ_NO: usize = 0;
@@ -69,7 +71,7 @@ impl WriteBatch<'_> {
     /// 提交数据，将数据写到文件当中，并更新内存索引
     pub fn commit(&self) -> ResultDb<()> {
         let mut pending_writes = self.pending.lock();
-        if pending_writes.len() == 0 {
+        if pending_writes.is_empty() {
             return Ok(());
         }
         if pending_writes.len() > self.options.max_batch_num {
@@ -148,12 +150,13 @@ pub(crate) fn parse_log_db_key(key: Vec<u8>) -> (Vec<u8>, usize) {
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
-    use std::sync::atomic::Ordering;
+    use std::{path::PathBuf, sync::atomic::Ordering};
 
-    use crate::db::{Closer, Config, ErrDb, Getter, WriteBatchOptions};
-    use crate::kits;
-    use crate::lite::LiteDb;
+    use crate::{
+        db::{Closer, Config, ErrDb, Getter, WriteBatchOptions},
+        kits,
+        lite::LiteDb,
+    };
 
     #[test]
     fn test_write_batch_1() {

@@ -1,20 +1,28 @@
-use std::collections::HashMap;
-use std::fs;
-use std::path::PathBuf;
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Arc;
+use std::{
+    collections::HashMap,
+    fs,
+    path::PathBuf,
+    sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    },
+};
 
 use bytes::Bytes;
 use fs2::FileExt;
 use parking_lot::{Mutex, RwLock};
 
-use crate::db::IndexType::BTree;
-use crate::db::{Adder, Closer, Config, Db, Editor, ErrDb, Getter, Indexer, IoType, Key, Remover, ResultDb, Value, DATA_FILE_NAME_SUFFIX};
-use crate::db::{FileDb, IndexType, LogDb, TransactionLogDb, WriteBatchOptions, MERGE_FINISHED_FILE_NAME, SEQ_NO_FILE_NAME};
-use crate::db::{LogDbPos, LogDbType};
-use crate::index::new_indexer;
-use crate::lite::batch::{log_db_key_with_seq, parse_log_db_key, WriteBatch, NON_TRANSACTION_SEQ_NO};
-use crate::lite::Table;
+use crate::{
+    db::{
+        Adder, Closer, Config, Db, Editor, ErrDb, FileDb, Getter, IndexType, IndexType::BTree, Indexer, IoType, Key, LogDb, LogDbPos, LogDbType, Remover,
+        ResultDb, TransactionLogDb, Value, WriteBatchOptions, DATA_FILE_NAME_SUFFIX, MERGE_FINISHED_FILE_NAME, SEQ_NO_FILE_NAME,
+    },
+    index::new_indexer,
+    lite::{
+        batch::{log_db_key_with_seq, parse_log_db_key, WriteBatch, NON_TRANSACTION_SEQ_NO},
+        Table,
+    },
+};
 
 pub(crate) const FILE_LOCK_NAME: &str = "___lite_db_file_lock_name___";
 const SEQ_NO_KEY: &str = "___seq_no___";
@@ -41,7 +49,7 @@ pub struct LiteDb {
 impl LiteDb {
     pub fn open(config: Config) -> ResultDb<LiteDb> {
         if let Some(e) = config.check() {
-            log::error!("{}", e.to_string());
+            log::error!("{}", e);
             return Err(e);
         }
         let mut is_initial = false;
@@ -49,22 +57,28 @@ impl LiteDb {
         if !path_db.is_dir() {
             is_initial = true;
             if let Err(e) = fs::create_dir_all(path_db.clone()) {
-                log::error!("{}", e.to_string());
+                log::error!("{}", e);
                 return Err(ErrDb::IoErr(e));
             }
         }
         // check whether the file opened
         let lock_file = {
-            match fs::OpenOptions::new().read(true).write(true).create(true).open(path_db.join(FILE_LOCK_NAME)) {
+            match fs::OpenOptions::new()
+                .read(true)
+                .write(true)
+                .create(true)
+                .truncate(true)
+                .open(path_db.join(FILE_LOCK_NAME))
+            {
                 Ok(f) => {
                     if let Err(e) = f.try_lock_exclusive() {
-                        log::error!("{}", e.to_string());
+                        log::error!("{}", e);
                         return Err(ErrDb::IoErr(e));
                     }
                     f
                 }
                 Err(e) => {
-                    log::error!("{}", e.to_string());
+                    log::error!("{}", e);
                     return Err(ErrDb::IoErr(e));
                 }
             }
@@ -88,7 +102,7 @@ impl LiteDb {
             None => FileDb::new(path_db.clone(), INITIAL_FILE_ID, IoType::StdIo)?,
         };
         let older_files = {
-            if data_files.len() > 0 {
+            if !data_files.is_empty() {
                 // 将旧的数据文件放到后面，新的数据文件在第一个位置
                 data_files.into_iter().rev().map(|f| (f.get_file_id(), f)).collect()
             } else {
@@ -513,17 +527,15 @@ fn load_data_files(dir_path: PathBuf, use_mmap: bool) -> ResultDb<Vec<FileDb>> {
 
     let mut file_ids: Vec<u32> = Vec::new();
     let mut data_files: Vec<FileDb> = Vec::new();
-    for file in dir {
-        if let Ok(entry) = file {
-            let file_os_str = entry.file_name();
-            let file_name = file_os_str.to_str().unwrap();
+    for entry in dir.flatten() {
+        let file_os_str = entry.file_name();
+        let file_name = file_os_str.to_str().unwrap();
 
-            if file_name.ends_with(DATA_FILE_NAME_SUFFIX) {
-                let split_names: Vec<&str> = file_name.split(".").collect();
-                let file_id = split_names[0].parse::<u32>()?;
+        if file_name.ends_with(DATA_FILE_NAME_SUFFIX) {
+            let split_names: Vec<&str> = file_name.split(".").collect();
+            let file_id = split_names[0].parse::<u32>()?;
 
-                file_ids.push(file_id);
-            }
+            file_ids.push(file_id);
         }
     }
 
@@ -548,16 +560,17 @@ fn load_data_files(dir_path: PathBuf, use_mmap: bool) -> ResultDb<Vec<FileDb>> {
 
 #[cfg(test)]
 mod tests {
-    use std::fs;
-    use std::path::PathBuf;
+    use std::{fs, path::PathBuf};
 
     use bytes::Bytes;
     use function_name::named;
 
-    use crate::db::{Adder, Closer, Config, Db, ErrDb, Getter, Remover};
-    use crate::kits;
-    use crate::kits::rand_kv::{get_test_key, get_test_value};
-    use crate::lite::LiteDb;
+    use crate::{
+        db::{Adder, Closer, Config, Db, ErrDb, Getter, Remover},
+        kits,
+        kits::rand_kv::{get_test_key, get_test_value},
+        lite::LiteDb,
+    };
 
     fn ready_config(file: &str, name: &str) -> Config {
         let mut config = Config::default();

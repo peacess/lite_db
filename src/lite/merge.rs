@@ -1,5 +1,7 @@
-use crate::db::{decode_log_db_pos, ErrDb, FileDb, ResultDb, HINT_FILE_NAME};
-use crate::lite::LiteDb;
+use crate::{
+    db::{decode_log_db_pos, ErrDb, FileDb, ResultDb, HINT_FILE_NAME},
+    lite::LiteDb,
+};
 
 impl LiteDb {
     /// 从 hint 索引文件中加载索引

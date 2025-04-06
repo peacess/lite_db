@@ -1,7 +1,6 @@
 use bytes::Bytes;
 
-use crate::db::LogDbPos;
-use crate::db::ResultDb;
+use crate::db::{LogDbPos, ResultDb};
 
 pub trait Indexer: Sync + Send {
     fn put(&self, key: Vec<u8>, pos: LogDbPos) -> Option<LogDbPos>;
@@ -23,16 +22,8 @@ pub trait IndexIterator: Sync + Send {
     fn next(&mut self) -> Option<(&Vec<u8>, &LogDbPos)>;
 }
 
+#[derive(Default)]
 pub struct IteratorOptions {
     pub prefix: Vec<u8>,
     pub reverse: bool,
-}
-
-impl Default for IteratorOptions {
-    fn default() -> Self {
-        Self {
-            prefix: Default::default(),
-            reverse: false,
-        }
-    }
 }

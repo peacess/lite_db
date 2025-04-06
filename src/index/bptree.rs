@@ -122,7 +122,7 @@ impl IndexIterator for BPTreeIterator {
         while let Some(item) = self.items.get(self.curr_index) {
             self.curr_index += 1;
             let prefix = &self.options.prefix;
-            if prefix.is_empty() || item.0.starts_with(&prefix) {
+            if prefix.is_empty() || item.0.starts_with(prefix) {
                 return Some((&item.0, &item.1));
             }
         }
@@ -134,9 +134,8 @@ impl IndexIterator for BPTreeIterator {
 mod tests {
     use std::fs;
 
-    use crate::db::LogDbPos;
-
     use super::*;
+    use crate::db::LogDbPos;
 
     #[test]
     fn test_bptree_put() {

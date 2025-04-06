@@ -1,5 +1,7 @@
-use std::fmt::{Debug, Display, Formatter};
-use std::io;
+use std::{
+    fmt::{Debug, Display, Formatter},
+    io,
+};
 
 /// the "result" is easy to confuse, add "db" suffix
 pub type ResultDb<T> = Result<T, ErrDb>;
@@ -20,18 +22,12 @@ pub enum ErrDb {
 impl ErrDb {
     #[inline]
     pub fn is_none(&self) -> bool {
-        match self {
-            ErrDb::None => true,
-            _ => false,
-        }
+        matches!(self, ErrDb::None)
     }
 
     #[inline]
     pub fn is_not_none(&self) -> bool {
-        match self {
-            ErrDb::None => false,
-            _ => true,
-        }
+        !matches!(self, ErrDb::None)
     }
 
     pub fn new_io_eof(info: &str) -> ErrDb {

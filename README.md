@@ -12,7 +12,6 @@ get,add,remove
 
 # install
 ```shell
-cargo install cargo-make
 cargo install cargo-edit
 ```
 

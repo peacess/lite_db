@@ -38,7 +38,7 @@ impl Indexer for BTree {
         let read_guard = self.tree.read();
         let mut keys = Vec::with_capacity(read_guard.len());
         for (k, _) in read_guard.iter() {
-            keys.push(Bytes::copy_from_slice(&k));
+            keys.push(Bytes::copy_from_slice(k));
         }
         Ok(keys)
     }
@@ -48,7 +48,7 @@ impl Indexer for BTree {
         let mut items = Vec::with_capacity(read_guard.len());
         // 将 BTree 中的数据存储到数组中
         for (key, value) in read_guard.iter() {
-            items.push((key.clone(), value.clone()));
+            items.push((key.clone(), *value));
         }
         if options.reverse {
             items.reverse();
@@ -89,7 +89,7 @@ impl IndexIterator for BTreeIterator {
         while let Some(item) = self.items.get(self.curr_index) {
             self.curr_index += 1;
             let prefix = &self.options.prefix;
-            if prefix.is_empty() || item.0.starts_with(&prefix) {
+            if prefix.is_empty() || item.0.starts_with(prefix) {
                 return Some((&item.0, &item.1));
             }
         }
@@ -99,9 +99,8 @@ impl IndexIterator for BTreeIterator {
 
 #[cfg(test)]
 mod tests {
-    use crate::db::{IteratorOptions, LogDbPos};
-
     use super::*;
+    use crate::db::{IteratorOptions, LogDbPos};
 
     #[test]
     fn test_btree_put() {
